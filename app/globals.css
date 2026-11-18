@@ -42,3 +42,5 @@ body { background: var(--canvas); color: var(--ink); font-family: var(--font-bod
   padding: .5rem .75rem; font-size: .875rem;
 }
 .label { display: block; margin-bottom: .3rem; font-size: .8125rem; font-weight: 500; }
+
+.btn:disabled { opacity: .5; cursor: not-allowed; }

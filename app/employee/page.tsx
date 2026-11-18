@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader, Card, Stat } from "@/components/ui";
 import { holidays } from "@/lib/data";
+import { DocNudge } from "@/components/documents";
 
 export default function Home() {
   return (
@@ -18,6 +19,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      <DocNudge />
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
         <Stat label="Leave left this year" value="14 days" note="Casual 6 · Sick 5 · Paid 3" />
         <Stat label="Present in November" value="11 of 12 days" note="1 late mark" />

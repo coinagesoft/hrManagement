@@ -46,8 +46,8 @@ const tones: Record<string, string> = {
   slate: "bg-slate-100 text-slate-700",
 };
 const toneOf: Record<string, string> = {
-  Active: "green", Present: "green", Approved: "green", Paid: "green", Office: "green",
-  Late: "amber", "Half-day": "amber", Pending: "amber", Draft: "amber",
+  Active: "green", Present: "green", Approved: "green", Paid: "green", Office: "green", Received: "green", Issued: "green",
+  Late: "amber", "Half-day": "amber", Pending: "amber", Draft: "amber", Requested: "amber",
   WFH: "blue", Finalised: "blue",
   Absent: "rose", Suspended: "rose", Rejected: "rose",
   "On leave": "slate", Inactive: "slate",
