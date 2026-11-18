@@ -4,9 +4,9 @@ import { usePathname } from "next/navigation";
 
 const NAV = {
   super: [["Dashboard", "/super"], ["Companies", "/super/companies"]],
-  admin: [["Dashboard", "/admin"], ["Employees", "/admin/employees"], ["Documents", "/admin/documents"], ["Messages", "/admin/messages"], ["Settings", "/admin/settings"]],
-  hr: [["Dashboard", "/hr"], ["Employees", "/hr/employees"], ["Approvals", "/hr/approvals"], ["Documents", "/hr/documents"], ["Payroll", "/hr/payroll"], ["Messages", "/hr/messages"]],
-  employee: [["Home", "/employee"], ["Attendance", "/employee/attendance"], ["Leave", "/employee/leave"], ["Documents", "/employee/documents"], ["Messages", "/employee/messages"]],
+  admin: [["Dashboard", "/admin"], ["Employees", "/admin/employees"], ["Calendar", "/admin/calendar"], ["Documents", "/admin/documents"], ["Messages", "/admin/messages"], ["Settings", "/admin/settings"]],
+  hr: [["Dashboard", "/hr"], ["Employees", "/hr/employees"], ["Calendar & approvals", "/hr/calendar"], ["Documents", "/hr/documents"], ["Payroll", "/hr/payroll"], ["Messages", "/hr/messages"]],
+  employee: [["Home", "/employee"], ["Attendance", "/employee/attendance"], ["Leave", "/employee/leave"], ["Calendar", "/employee/calendar"], ["Documents", "/employee/documents"], ["Messages", "/employee/messages"]],
 } as const;
 
 export type Role = keyof typeof NAV;

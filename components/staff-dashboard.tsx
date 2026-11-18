@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader, Card, Stat } from "@/components/ui";
-import { leaveRequests, wfhRequests, holidays } from "@/lib/data";
+import { leaveRequests, wfhRequests } from "@/lib/data";
+import { UpcomingHolidays } from "@/components/calendar";
 
 const mix = [["Office", 17, "bg-pine"], ["WFH", 4, "bg-sky-500"], ["On leave", 3, "bg-slate-400"], ["Absent", 2, "bg-rose-500"]] as const;
 
@@ -38,11 +39,7 @@ export function StaffDashboard({ title, approvals }: { title: string; approvals?
             </ul>
           </Card>
         </div>
-        <Card title="Upcoming holidays">
-          <ul className="divide-y divide-line text-sm">
-            {holidays.map((h) => <li key={h.name} className="flex justify-between py-2.5"><span>{h.name}</span><span className="text-mute">{h.date}</span></li>)}
-          </ul>
-        </Card>
+        <Card title="Upcoming holidays"><UpcomingHolidays /></Card>
       </div>
     </>
   );

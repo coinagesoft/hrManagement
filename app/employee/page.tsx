@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PageHeader, Card, Stat } from "@/components/ui";
-import { holidays } from "@/lib/data";
+import { LeaveLeftStat } from "@/components/leave";
+import { UpcomingHolidays } from "@/components/calendar";
 import { DocNudge } from "@/components/documents";
 
 export default function Home() {
@@ -21,14 +22,12 @@ export default function Home() {
       </section>
       <DocNudge />
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <Stat label="Leave left this year" value="14 days" note="Casual 6 · Sick 5 · Paid 3" />
+        <LeaveLeftStat />
         <Stat label="Present in November" value="11 of 12 days" note="1 late mark" />
         <Stat label="October payslip" value="₹60,400" note="Paid 31 Oct" />
       </div>
       <Card title="Upcoming holidays" className="mt-6">
-        <ul className="divide-y divide-line text-sm">
-          {holidays.map((h) => <li key={h.name} className="flex justify-between py-2.5"><span>{h.name}</span><span className="text-mute">{h.date}</span></li>)}
-        </ul>
+        <UpcomingHolidays />
       </Card>
     </>
   );
