@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { PartyPopper, Plus, Trash2 } from "lucide-react";
-import { Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Button as Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { HOLIDAYS, type Holiday } from "@/lib/mock";
 import { DAYS_SHORT, fmtDate, parseISO } from "@/lib/dates";
