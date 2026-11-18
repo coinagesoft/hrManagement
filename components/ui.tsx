@@ -148,8 +148,8 @@ export function StatusBadge({ s, label }: { s: string; label?: string }) {
 export function Th({ className = "", children }: { className?: string; children?: ReactNode }) {
   return <th className={`px-5 py-2.5 text-left font-medium ${className}`}>{children}</th>;
 }
-export function Td({ className = "", children }: { className?: string; children?: ReactNode }) {
-  return <td className={`px-5 py-3 ${className}`}>{children}</td>;
+export function Td({ className = "", children, colSpan }: { className?: string; children?: ReactNode; colSpan?: number }) {
+  return <td colSpan={colSpan} className={`px-5 py-3 ${className}`}>{children}</td>;
 }
 
 /** Use either <Table head={[...]} rows={[[...]]} /> or compose with children (<thead>/<tbody>). */

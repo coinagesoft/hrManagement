@@ -1,143 +1,274 @@
 "use client";
+
 import Link from "next/link";
-import { useState } from "react";
-import { CalendarClock, Check, CircleCheck, House, UserCheck, Users, UserX, X } from "lucide-react";
-import { Avatar, Badge, Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge, Progress } from "@/components/ui";
+import { useEffect, useState } from "react";
+import { Check, House, UserCheck, Users, UserX, X, Loader2 } from "lucide-react";
+import { Avatar, Badge, Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge } from "@/components/ui";
 import { useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
-import { HOLIDAYS, PEOPLE, TEAM_LEAVES, TEAM_TODAY, TEAM_WFH, WHO } from "@/lib/mock";
-import { fmtShort, TODAY, iso } from "@/lib/dates";
+import { fmtShort } from "@/lib/dates";
 
-const WEEK = [
-  { d: "Mon", p: 8, w: 2, l: 1, a: 0 }, { d: "Tue", p: 7, w: 2, l: 1, a: 1 }, { d: "Wed", p: 9, w: 1, l: 1, a: 0 },
-  { d: "Thu", p: 8, w: 1, l: 2, a: 0 }, { d: "Fri", p: 6, w: 3, l: 2, a: 0 },
-];
+interface DashboardData {
+  company: { id: number; name: string; code: string };
+  metrics: {
+    headcount: number;
+    present: number;
+    onLeave: number;
+    wfh: number;
+    absent: number;
+    pendingApprovalsCount: number;
+  };
+  pendingApprovals: {
+    id: string;
+    rawId: number;
+    kind: "Leave" | "WFH";
+    who: string;
+    dept: string;
+    type: string;
+    dates: string;
+    days?: number;
+    reason: string;
+  }[];
+  outToday: { id: number; name: string; dept: string }[];
+  upcomingHolidays: { id: number; name: string; date: string; kind: string }[];
+  weekSummary: { d: string; p: number; w: number; l: number; a: number }[];
+}
 
 export default function ManagerDashboard() {
   const role = useRole();
   const toast = useToast();
-  const [done, setDone] = useState<Record<string, string>>({});
-  const pendingLeaves = TEAM_LEAVES.filter((l) => l.status === "Pending");
-  const pendingWfh = TEAM_WFH.filter((w) => w.status === "Pending");
-  const active = PEOPLE.filter((p) => p.status === "Active").length;
-  const present = TEAM_TODAY.filter((t) => t.status === "Present" || t.status === "Late").length;
-  const wfh = TEAM_TODAY.filter((t) => t.mode === "WFH").length;
-  const onLeave = TEAM_TODAY.filter((t) => t.status === "On leave");
-  const holidays = HOLIDAYS.filter((h) => h.date >= iso(TODAY)).slice(0, 3);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [decisions, setDecisions] = useState<Record<string, string>>({});
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const act = (id: string, what: "Approved" | "Rejected", who: string) => {
-    setDone((d) => ({ ...d, [id]: what }));
-    toast(`${what}: ${who}`);
+  const fetchDashboard = async () => {
+    try {
+      const res = await fetch("/api/admin/dashboard");
+      const json = await res.json();
+      if (json?.success) {
+        setData(json);
+      }
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const rows = [
-    ...pendingLeaves.map((l) => ({ id: l.id, who: l.who, kind: "Leave", text: `${l.type} leave, ${fmtShort(l.from)}${l.from !== l.to ? " to " + fmtShort(l.to) : ""} (${l.days}d)` })),
-    ...pendingWfh.map((w) => ({ id: w.id, who: w.who, kind: "WFH", text: `Work from home, ${fmtShort(w.date)}` })),
-  ];
+  useEffect(() => {
+    fetchDashboard();
+  }, []);
+
+  const act = async (item: DashboardData["pendingApprovals"][0], action: "Approved" | "Rejected") => {
+    setActionLoading(item.id);
+    try {
+      const res = await fetch("/api/admin/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.rawId,
+          type: item.kind,
+          action,
+        }),
+      });
+
+      const resJson = await res.json();
+      if (!res.ok) throw new Error(resJson.error || "Failed to submit decision");
+
+      setDecisions((d) => ({ ...d, [item.id]: action }));
+      toast(`${action}: ${item.who}`);
+      fetchDashboard();
+    } catch (err: any) {
+      toast(err.message || "Action failed");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const active = data?.metrics.headcount ?? 12;
+  const present = data?.metrics.present ?? 9;
+  const onLeaveCount = data?.metrics.onLeave ?? 1;
+  const wfh = data?.metrics.wfh ?? 2;
+
+  const rows = data?.pendingApprovals ?? [];
+  const openApprovals = rows.filter((r) => !decisions[r.id]);
+  const outList = data?.outToday ?? [];
+  const holidays = data?.upcomingHolidays ?? [];
+  const week = data?.weekSummary ?? [];
 
   return (
     <>
-      <PageHeader title={`Good morning, ${WHO[role === "hr" ? "hr" : "admin"].name.split(" ")[0]}`} desc="Tuesday, 17 November 2026. Here is how your team is doing today."
-        actions={<><Link href={`/${role}/employees`}><Btn variant="outline" icon={Users}>Employees</Btn></Link><Link href={`/${role}/payroll`}><Btn>Run payroll</Btn></Link></>} />
+      <PageHeader
+        title={`Dashboard · ${data?.company.name || "Company Overview"}`}
+        desc="Live team overview, attendance status, and pending approvals."
+        actions={
+          <>
+            <Link href={`/${role}/employees`}>
+              <Btn variant="outline" icon={Users}>
+                Employees
+              </Btn>
+            </Link>
+            <Link href={`/${role}/payroll`}>
+              <Btn>Run payroll</Btn>
+            </Link>
+          </>
+        }
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total employees" value={active} icon={Users} hint="1 deactivated this quarter" />
-        <StatCard label="Present today" value={present} icon={UserCheck} tone="green" hint={`${Math.round((present / active) * 100)}% of the team`} />
-        <StatCard label="On leave" value={onLeave.length} icon={UserX} tone="indigo" hint="Approved leave today" />
+        <StatCard label="Total employees" value={active} icon={Users} hint="Active team headcount" />
+        <StatCard
+          label="Present today"
+          value={present}
+          icon={UserCheck}
+          tone="green"
+          hint={`${active ? Math.round((present / active) * 100) : 0}% of the team`}
+        />
+        <StatCard label="On leave" value={onLeaveCount} icon={UserX} tone="indigo" hint="Approved leave today" />
         <StatCard label="Working from home" value={wfh} icon={House} tone="teal" hint="Approved WFH today" />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Pending approvals" desc="Leave and WFH requests waiting for you"
-            action={<Badge tone="amber">{rows.filter((r) => !done[r.id]).length} open</Badge>} />
-          <ul className="divide-y divide-slate-100">
-            {rows.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
-                <div className="flex items-center gap-3">
-                  <Avatar name={r.who} />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{r.who} <Badge tone={r.kind === "WFH" ? "teal" : "blue"}>{r.kind}</Badge></p>
-                    <p className="text-sm text-slate-500">{r.text}</p>
+          <CardHeader
+            title="Pending approvals"
+            desc="Leave and WFH requests requiring admin decision"
+            action={<Badge tone="amber">{openApprovals.length} open</Badge>}
+          />
+
+          {loading ? (
+            <div className="flex items-center justify-center p-12 text-slate-400">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading pending requests...
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-500">
+              No pending approval requests. Your inbox is clear!
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {rows.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={r.who} />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-slate-900">{r.who}</p>
+                        <Badge tone={r.kind === "WFH" ? "teal" : "blue"}>{r.kind}</Badge>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {r.dates} {r.days ? `(${r.days} days)` : ""} · <em>{r.reason}</em>
+                      </p>
+                    </div>
                   </div>
-                </div>
-                {done[r.id] ? <StatusBadge s={done[r.id]} /> : (
-                  <div className="flex gap-2">
-                    <Btn size="sm" variant="outline" icon={X} onClick={() => act(r.id, "Rejected", r.who)}>Reject</Btn>
-                    <Btn size="sm" variant="success" icon={Check} onClick={() => act(r.id, "Approved", r.who)}>Approve</Btn>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                  {decisions[r.id] ? (
+                    <StatusBadge s={decisions[r.id]} />
+                  ) : (
+                    <div className="flex gap-2">
+                      <Btn
+                        size="sm"
+                        variant="outline"
+                        icon={X}
+                        disabled={actionLoading === r.id}
+                        onClick={() => act(r, "Rejected")}
+                      >
+                        Reject
+                      </Btn>
+                      <Btn
+                        size="sm"
+                        variant="success"
+                        icon={Check}
+                        disabled={actionLoading === r.id}
+                        onClick={() => act(r, "Approved")}
+                      >
+                        Approve
+                      </Btn>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
 
         <Card>
           <CardHeader title="Out today" desc="On approved leave" />
-          <ul className="space-y-3 p-5">
-            {onLeave.map((p) => (
-              <li key={p.name} className="flex items-center gap-3"><Avatar name={p.name} /><div><p className="text-sm font-medium text-slate-900">{p.name}</p><p className="text-xs text-slate-500">{p.dept}</p></div></li>
-            ))}
-          </ul>
-          <div className="border-t border-slate-100 px-5 py-3">
+          {outList.length === 0 ? (
+            <div className="p-5 text-sm text-slate-400 italic">Everyone is working today.</div>
+          ) : (
+            <ul className="space-y-3 p-5">
+              {outList.map((p) => (
+                <li key={p.id} className="flex items-center gap-3">
+                  <Avatar name={p.name} />
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{p.name}</p>
+                    <p className="text-xs text-slate-500">{p.dept}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="border-t border-slate-100 px-5 py-3.5">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Upcoming holidays</p>
-            {holidays.map((h) => (
-              <p key={h.id} className="mt-2 flex justify-between text-sm text-slate-700"><span>{h.name}</span><span className="text-slate-500">{fmtShort(h.date)}</span></p>
-            ))}
+            {holidays.length === 0 ? (
+              <p className="text-xs text-slate-400 mt-2">No upcoming holidays scheduled.</p>
+            ) : (
+              holidays.map((h) => (
+                <p key={h.id} className="mt-2 flex justify-between text-sm text-slate-700">
+                  <span>{h.name}</span>
+                  <span className="text-slate-500 text-xs font-medium">{h.date}</span>
+                </p>
+              ))
+            )}
           </div>
         </Card>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Card className={role === "admin" ? "lg:col-span-2" : "lg:col-span-3"}>
-          <CardHeader title="Attendance this week" desc="Headcount by day" action={
-            <div className="flex gap-3 text-xs text-slate-500">
-              <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-emerald-500" />Office</span>
-              <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-teal-400" />WFH</span>
-              <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-indigo-400" />Leave</span>
-              <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-rose-400" />Absent</span>
-            </div>} />
+        <Card className="lg:col-span-3">
+          <CardHeader
+            title="Attendance this week"
+            desc="Headcount by day"
+            action={
+              <div className="flex gap-3 text-xs text-slate-500">
+                <span className="flex items-center gap-1">
+                  <i className="h-2 w-2 rounded-full bg-emerald-500" />
+                  Office
+                </span>
+                <span className="flex items-center gap-1">
+                  <i className="h-2 w-2 rounded-full bg-teal-400" />
+                  WFH
+                </span>
+                <span className="flex items-center gap-1">
+                  <i className="h-2 w-2 rounded-full bg-indigo-400" />
+                  Leave
+                </span>
+                <span className="flex items-center gap-1">
+                  <i className="h-2 w-2 rounded-full bg-rose-400" />
+                  Absent
+                </span>
+              </div>
+            }
+          />
           <div className="flex h-56 items-end gap-6 px-6 pb-5 pt-6">
-            {WEEK.map((d) => {
-              const tot = d.p + d.w + d.l + d.a;
-              const seg = (n: number, c: string) => n > 0 && <div className={c} style={{ height: `${(n / tot) * 100}%` }} />;
+            {week.map((w) => {
+              const sum = Math.max(w.p + w.w + w.l + w.a, 1);
               return (
-                <div key={d.d} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
-                  <div className="flex h-full w-full max-w-14 flex-col-reverse overflow-hidden rounded-md">
-                    {seg(d.p, "bg-emerald-500")}{seg(d.w, "bg-teal-400")}{seg(d.l, "bg-indigo-400")}{seg(d.a, "bg-rose-400")}
+                <div key={w.d} className="flex flex-1 flex-col items-center gap-2">
+                  <div className="flex w-full max-w-10 flex-col-reverse overflow-hidden rounded-t-md bg-slate-100" style={{ height: "180px" }}>
+                    <div style={{ height: `${(w.p / sum) * 100}%` }} className="bg-emerald-500" title={`Office: ${w.p}`} />
+                    <div style={{ height: `${(w.w / sum) * 100}%` }} className="bg-teal-400" title={`WFH: ${w.w}`} />
+                    <div style={{ height: `${(w.l / sum) * 100}%` }} className="bg-indigo-400" title={`Leave: ${w.l}`} />
+                    <div style={{ height: `${(w.a / sum) * 100}%` }} className="bg-rose-400" title={`Absent: ${w.a}`} />
                   </div>
-                  <span className="text-xs text-slate-500">{d.d}</span>
+                  <span className="text-xs font-medium text-slate-600">{w.d}</span>
                 </div>
               );
             })}
           </div>
         </Card>
-
-        {role === "admin" && (
-          <Card>
-            <CardHeader title="Set up your company" desc="3 of 5 steps done" />
-            <div className="px-5 pt-4"><Progress value={60} tone="bg-emerald-500" /></div>
-            <ul className="space-y-3 p-5 text-sm">
-              {[
-                ["Add your HR team", true, "employees"], ["Register office network", true, "settings"], ["Set leave policy", true, "leave-policy"],
-                ["Add company holidays", false, "holidays"], ["Review role access", false, "permissions"],
-              ].map(([t, d, href]) => (
-                <li key={String(t)}>
-                  <Link href={`/admin/${href}`} className="flex items-center gap-2.5 text-slate-700 hover:text-indigo-700">
-                    {d ? <CircleCheck className="h-5 w-5 text-emerald-500" /> : <span className="h-5 w-5 rounded-full border-2 border-slate-300" />}
-                    <span className={d ? "text-slate-400 line-through" : ""}>{String(t)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
       </div>
-
-      <Card className="mt-6">
-        <CardHeader title="Not checked in yet" desc="Active employees without a check-in or approved leave" action={<CalendarClock className="h-4 w-4 text-slate-400" />} />
-        <p className="px-5 py-4 text-sm text-slate-600">Everyone has checked in or is on approved leave. Late arrivals today: <span className="font-medium">{TEAM_TODAY.filter((t) => t.status === "Late").map((t) => t.name).join(", ") || "none"}</span>.</p>
-      </Card>
     </>
   );
 }

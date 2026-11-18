@@ -1,2 +1,5 @@
-import { MessagesPage } from "@/components/messages";
-export default function Page() { return <MessagesPage role="admin" />; }
+import MessagesPage from "@/app/hr/messages/page";
+
+export default function Page() {
+  return <MessagesPage />;
+}

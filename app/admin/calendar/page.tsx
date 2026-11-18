@@ -1,2 +1,5 @@
-import { CalendarPage } from "@/components/calendar";
-export default function Page() { return <CalendarPage role="admin" />; }
+import CalendarApprovalsPage from "@/app/hr/calendar/page";
+
+export default function Page() {
+  return <CalendarApprovalsPage />;
+}

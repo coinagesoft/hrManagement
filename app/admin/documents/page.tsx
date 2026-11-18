@@ -1,2 +1,5 @@
-import { DocumentsPage } from "@/components/documents";
-export default function Page() { return <DocumentsPage role="admin" />; }
+import DocumentsPage from "@/app/hr/documents/page";
+
+export default function Page() {
+  return <DocumentsPage />;
+}

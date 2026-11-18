@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import Shell from "@/components/Shell";
+import Shell from "@/components/shell";
 import { ROLES, type Role } from "@/lib/roles";
 
 export function generateStaticParams() {

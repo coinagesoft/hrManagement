@@ -1,43 +1,196 @@
 "use client";
-import { useState } from "react";
-import { Check, House, Plus, X } from "lucide-react";
-import { Avatar, Btn, Card, CardHeader, Empty, Notice, PageHeader, Progress, StatusBadge, Table, Td, Th } from "@/components/ui";
+
+import { useEffect, useState } from "react";
+import { Check, House, Plus, X, Loader2 } from "lucide-react";
+import { Avatar, Btn, Card, Empty, PageHeader, Progress, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, Tabs, inputCls, useToast } from "@/components/interactive";
-import { MY_WFH, TEAM_WFH, type WfhReq } from "@/lib/mock";
 import { useRole } from "@/lib/role";
-import { fmtDate } from "@/lib/dates";
+
+interface WfhItem {
+  id: number;
+  userId: number;
+  who: string;
+  dept: string;
+  date: string;
+  reason: string;
+  status: string;
+}
 
 function Mine() {
   const toast = useToast();
-  const [list, setList] = useState<WfhReq[]>(MY_WFH);
+  const [list, setList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ date: "", reason: "" });
-  const used = list.filter((w) => w.status === "Approved").length;
+  const [date, setDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const fetchMyWfh = async () => {
+    try {
+      const res = await fetch("/api/employee/leave");
+      const json = await res.json();
+      if (json?.success && json?.history) {
+        setList(json.history.filter((h: any) => h.kind === "wfh"));
+      }
+    } catch (err) {
+      console.error("Failed to load WFH history:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyWfh();
+  }, []);
+
+  const handleRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!date) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/employee/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "Work from home",
+          from: date,
+          to: date,
+          why: reason,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Request failed");
+
+      toast("Work from home request sent to HR");
+      setOpen(false);
+      setDate("");
+      setReason("");
+      await fetchMyWfh();
+    } catch (err: any) {
+      toast(err.message || "Failed to submit WFH request");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancel = async (id: number) => {
+    try {
+      const res = await fetch(`/api/employee/leave?id=${id}&kind=wfh`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Cancel failed");
+
+      toast("WFH request cancelled");
+      await fetchMyWfh();
+    } catch (err: any) {
+      toast(err.message || "Cancel failed");
+    }
+  };
+
+  const approvedCount = list.filter((w) => w.status === "Approved").length;
+
   return (
     <>
-      <PageHeader title="Work from home" desc="WFH is allowed only on days HR has approved." actions={<Btn icon={Plus} onClick={() => setOpen(true)}>Request WFH</Btn>} />
+      <PageHeader
+        title="Work from home"
+        sub="WFH is allowed on days approved by management. On approved days, network restriction is lifted."
+        actions={
+          <Btn icon={Plus} onClick={() => setOpen(true)}>
+            Request WFH
+          </Btn>
+        }
+      />
+
       <Card className="mb-6 p-5">
-        <div className="flex items-baseline justify-between"><p className="text-sm font-medium text-slate-700">WFH days this month</p><p className="text-sm text-slate-500"><b className="text-slate-900">{used}</b> of 4 used</p></div>
-        <div className="mt-3"><Progress value={(used / 4) * 100} tone="bg-teal-500" /></div>
+        <div className="flex items-baseline justify-between">
+          <p className="text-sm font-medium text-slate-700">Approved WFH days this month</p>
+          <p className="text-sm text-slate-500">
+            <b className="text-slate-900">{approvedCount}</b> approved
+          </p>
+        </div>
+        <div className="mt-3">
+          <Progress value={Math.min(100, (approvedCount / 4) * 100)} tone="bg-teal-500" />
+        </div>
       </Card>
-      <Notice tone="blue" icon={House}>On an approved day you can check in from anywhere. On all other days, check-in works only from the office network.</Notice>
-      <Card className="mt-6">
-        <CardHeader title="My requests" />
-        <Table>
-          <thead><tr><Th>Date</Th><Th>Reason</Th><Th>Status</Th><Th /></tr></thead>
-          <tbody>
-            {list.map((w) => (
-              <tr key={w.id}><Td className="font-medium text-slate-900">{fmtDate(w.date)}</Td><Td>{w.reason}</Td><Td><StatusBadge s={w.status} /></Td>
-                <Td className="text-right">{w.status === "Pending" && <Btn size="sm" variant="ghost" onClick={() => { setList(list.map((x) => (x.id === w.id ? { ...x, status: "Cancelled" } : x))); toast("Request cancelled"); }}>Cancel</Btn>}</Td></tr>
-            ))}
-          </tbody>
-        </Table>
+
+      <Card flush title="My WFH requests">
+        {loading ? (
+          <div className="flex h-48 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-pine" />
+          </div>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Date</Th>
+                <Th>Reason</Th>
+                <Th>Status</Th>
+                <Th></Th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.length === 0 ? (
+                <tr>
+                  <Td colSpan={4} className="py-8 text-center text-mute">
+                    No work from home requests submitted.
+                  </Td>
+                </tr>
+              ) : (
+                list.map((w) => (
+                  <tr key={w.id}>
+                    <Td className="font-medium text-slate-900">{w.from}</Td>
+                    <Td className="text-slate-600">{w.reason || "Work from home"}</Td>
+                    <Td>
+                      <StatusBadge s={w.status} />
+                    </Td>
+                    <Td className="text-right">
+                      {w.status === "Pending" && (
+                        <Btn size="sm" variant="ghost" onClick={() => handleCancel(w.id)}>
+                          Cancel
+                        </Btn>
+                      )}
+                    </Td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        )}
       </Card>
-      <Modal open={open} onClose={() => setOpen(false)} title="Request work from home"
-        footer={<><Btn variant="outline" onClick={() => setOpen(false)}>Cancel</Btn><Btn type="submit" form="wfh">Send to HR</Btn></>}>
-        <form id="wfh" className="space-y-4" onSubmit={(e) => { e.preventDefault(); setList([{ id: `n${Date.now()}`, who: "Rohan Patil", date: f.date, reason: f.reason, status: "Pending" }, ...list]); toast("WFH request sent to HR"); setOpen(false); setF({ date: "", reason: "" }); }}>
-          <Field label="Date"><input required type="date" className={inputCls} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
-          <Field label="Reason"><input required className={inputCls} value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} /></Field>
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Request work from home"
+        footer={
+          <>
+            <Btn variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Btn>
+            <Btn type="submit" form="wfh-form" disabled={submitting}>
+              {submitting ? "Sending..." : "Send to HR"}
+            </Btn>
+          </>
+        }
+      >
+        <form id="wfh-form" className="space-y-4" onSubmit={handleRequest}>
+          <Field label="Date">
+            <input
+              required
+              type="date"
+              className={inputCls}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </Field>
+          <Field label="Reason">
+            <input
+              required
+              className={inputCls}
+              placeholder="e.g. Broadband installation, travel"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </Field>
         </form>
       </Modal>
     </>
@@ -46,26 +199,147 @@ function Mine() {
 
 function Team() {
   const toast = useToast();
-  const [list, setList] = useState<WfhReq[]>(TEAM_WFH);
+  const [list, setList] = useState<WfhItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"pending" | "history">("pending");
+  const [decidingId, setDecidingId] = useState<number | null>(null);
+
+  const fetchTeamWfh = async () => {
+    try {
+      const res = await fetch("/api/hr/calendar?year=2026&month=11");
+      const json = await res.json();
+      if (json?.success && json?.wfh) {
+        setList(
+          json.wfh.map((w: any) => ({
+            id: w.id,
+            userId: w.userId,
+            who: w.name,
+            dept: w.code,
+            date: w.date,
+            reason: w.reason || "Work from home",
+            status: w.status,
+          }))
+        );
+      }
+    } catch (err) {
+      console.error("Failed to load team WFH:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeamWfh();
+  }, []);
+
+  const decide = async (item: WfhItem, action: "Approved" | "Rejected") => {
+    setDecidingId(item.id);
+    try {
+      const res = await fetch("/api/admin/approvals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          type: "WFH",
+          action,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Action failed");
+
+      toast(`WFH ${action.toLowerCase()} for ${item.who}`);
+      await fetchTeamWfh();
+    } catch (err: any) {
+      toast(err.message || "Action failed");
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
   const pending = list.filter((w) => w.status === "Pending");
   const history = list.filter((w) => w.status !== "Pending");
-  const decide = (w: WfhReq, s: "Approved" | "Rejected") => { setList(list.map((x) => (x.id === w.id ? { ...x, status: s } : x))); toast(`WFH ${s.toLowerCase()} for ${w.who}`); };
-  const rows = tab === "pending" ? pending : history;
+
   return (
     <>
-      <PageHeader title="WFH requests" desc="Employees can check in remotely only on days you approve." />
-      <Tabs tabs={[{ id: "pending", label: "Pending", count: pending.length }, { id: "history", label: "History", count: history.length }]} value={tab} onChange={setTab} />
-      <Card>
-        {rows.length === 0 ? <Empty icon={House} title="All caught up" desc="No WFH requests waiting for approval." /> : (
+      <PageHeader
+        title="Work from home requests"
+        sub="Approve team members to check in outside the verified office network."
+      />
+
+      <Tabs
+        tabs={[
+          { id: "pending", label: "Pending", count: pending.length },
+          { id: "history", label: "History", count: history.length },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
+
+      <Card flush>
+        {loading ? (
+          <div className="flex h-48 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-pine" />
+          </div>
+        ) : (tab === "pending" ? pending : history).length === 0 ? (
+          <Empty
+            icon={House}
+            title="All clear"
+            desc={
+              tab === "pending"
+                ? "No pending work from home requests."
+                : "No past WFH history found."
+            }
+          />
+        ) : (
           <Table>
-            <thead><tr><Th>Employee</Th><Th>Date</Th><Th>Reason</Th><Th>{tab === "pending" ? "Action" : "Status"}</Th></tr></thead>
+            <thead>
+              <tr>
+                <Th>Employee</Th>
+                <Th>Date</Th>
+                <Th>Reason</Th>
+                <Th>{tab === "pending" ? "Action" : "Status"}</Th>
+              </tr>
+            </thead>
             <tbody>
-              {rows.map((w) => (
+              {(tab === "pending" ? pending : history).map((w) => (
                 <tr key={w.id}>
-                  <Td><div className="flex items-center gap-3"><Avatar name={w.who} /><span className="font-medium text-slate-900">{w.who}</span></div></Td>
-                  <Td>{fmtDate(w.date)}</Td><Td>{w.reason}</Td>
-                  <Td>{tab === "pending" ? <div className="flex gap-2"><Btn size="sm" variant="outline" icon={X} onClick={() => decide(w, "Rejected")}>Reject</Btn><Btn size="sm" variant="success" icon={Check} onClick={() => decide(w, "Approved")}>Approve</Btn></div> : <StatusBadge s={w.status} />}</Td>
+                  <Td>
+                    <div className="flex items-center gap-3">
+                      <Avatar name={w.who} />
+                      <div>
+                        <p className="font-medium text-slate-900">{w.who}</p>
+                        <p className="text-xs text-mute">{w.dept}</p>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td className="text-xs text-slate-700">{w.date}</Td>
+                  <Td className="text-xs text-mute max-w-xs truncate">{w.reason}</Td>
+                  <Td>
+                    {tab === "pending" ? (
+                      <div className="flex gap-2">
+                        <Btn
+                          size="sm"
+                          variant="outline"
+                          icon={X}
+                          disabled={decidingId === w.id}
+                          onClick={() => decide(w, "Rejected")}
+                        >
+                          Reject
+                        </Btn>
+                        <Btn
+                          size="sm"
+                          variant="success"
+                          icon={decidingId === w.id ? Loader2 : Check}
+                          disabled={decidingId === w.id}
+                          onClick={() => decide(w, "Approved")}
+                        >
+                          Approve
+                        </Btn>
+                      </div>
+                    ) : (
+                      <StatusBadge s={w.status} />
+                    )}
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -77,5 +351,9 @@ function Team() {
 }
 
 export default function WfhPage() {
-  return useRole() === "employee" ? <Mine /> : <Team />;
+  const role = useRole();
+  if (role === "employee") {
+    return <Mine />;
+  }
+  return <Team />;
 }

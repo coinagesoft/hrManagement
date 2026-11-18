@@ -1,2 +1,5 @@
-import { EmployeesPage } from "@/components/employees-page";
-export default function Page() { return <EmployeesPage canAddHr />; }
+import EmployeesPage from "@/app/(app)/[role]/employees/page";
+
+export default function Page() {
+  return <EmployeesPage />;
+}
