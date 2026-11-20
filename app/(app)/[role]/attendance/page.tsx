@@ -69,7 +69,14 @@ function Mine() {
                   <Td>{r.checkOut || r.out || "—"}</Td>
                   <Td>{r.mode === "-" ? "-" : <StatusBadge s={r.mode} />}</Td>
                   <Td>
-                    <StatusBadge s={r.status} />
+                    <div className="flex flex-col gap-0.5">
+                      <StatusBadge s={r.status} />
+                      {r.status === "On leave" && r.leaveReason && (
+                        <span className="text-[10px] text-slate-500 truncate max-w-[140px]" title={r.leaveReason}>
+                          {r.leaveReason}
+                        </span>
+                      )}
+                    </div>
                   </Td>
                 </tr>
               ))}
@@ -92,11 +99,13 @@ interface TeamRow {
   in: string;
   out: string;
   ip: string;
+  leaveReason?: string | null;
+  leaveType?: string | null;
 }
 
 function Team() {
   const toast = useToast();
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState("2026-11-18");
   const [list, setList] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
@@ -104,6 +113,10 @@ function Team() {
   const [fix, setFix] = useState<TeamRow | null>(null);
   const [correctForm, setCorrectForm] = useState({ checkIn: "09:30", checkOut: "18:30", reason: "" });
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDate(new Date().toISOString().split("T")[0]);
+  }, []);
 
   const fetchAttendance = async (d: string) => {
     setLoading(true);
@@ -168,7 +181,7 @@ function Team() {
     <>
       <PageHeader
         title="Attendance Roster"
-        desc={`Roster for ${new Date(date).toLocaleDateString("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}`}
+        desc={`Team attendance roster for ${date}`}
         actions={
           <input
             type="date"
@@ -184,6 +197,7 @@ function Team() {
         <Badge tone="amber" dot>Late {c("Late")}</Badge>
         <Badge tone="indigo" dot>On leave {c("On leave")}</Badge>
         <Badge tone="teal" dot>WFH {wfhCount}</Badge>
+        <Badge tone="slate" dot>Absent {c("Absent")}</Badge>
       </div>
 
       <Card>
@@ -242,7 +256,14 @@ function Team() {
                   <Td>{r.mode === "-" ? "-" : <StatusBadge s={r.mode} />}</Td>
                   <Td className="font-mono text-xs">{r.ip}</Td>
                   <Td>
-                    <StatusBadge s={r.status} />
+                    <div className="flex flex-col gap-0.5">
+                      <StatusBadge s={r.status} />
+                      {r.status === "On leave" && r.leaveReason && (
+                        <span className="text-[10px] text-slate-500 truncate max-w-[140px]" title={r.leaveReason}>
+                          {r.leaveReason}
+                        </span>
+                      )}
+                    </div>
                   </Td>
                   <Td className="text-right">
                     <Btn

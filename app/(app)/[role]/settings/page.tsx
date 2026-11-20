@@ -26,9 +26,8 @@ export default function SettingsPage() {
 
   const [wifi, setWifi] = useState(true);
   const [wfh, setWfh] = useState({ enabled: true, sameDay: true, limit: 4 });
-  const [nets, setNets] = useState<Net[]>([
-    { id: "n1", label: "Pune Head Office", ip: "203.0.113.10", active: true },
-  ]);
+  const [nets, setNets] = useState<Net[]>([]);
+  const [detectedIp, setDetectedIp] = useState("127.0.0.1");
   const [newNet, setNewNet] = useState({ label: "", ip: "" });
 
   useEffect(() => {
@@ -36,6 +35,7 @@ export default function SettingsPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.success) {
+          if (data.currentClientIp) setDetectedIp(data.currentClientIp);
           if (data.profile?.name) setCompanyName(data.profile.name);
           if (data.schedule) {
             setStartTime(data.schedule.startTime || "09:30");
@@ -45,13 +45,15 @@ export default function SettingsPage() {
             if (data.schedule.workingDays) setDays(data.schedule.workingDays);
           }
           if (data.network) {
-            setWifi(data.network.enforceOfficeIp);
+            setWifi(Boolean(data.network.enforceOfficeIp));
             setWfh({
               enabled: true,
-              sameDay: data.network.allowSameDayWfh,
+              sameDay: Boolean(data.network.allowSameDayWfh),
               limit: data.network.wfhLimitMonthly ?? 4,
             });
-            if (data.network.allowedIps?.length) setNets(data.network.allowedIps);
+            if (Array.isArray(data.network.allowedIps)) {
+              setNets(data.network.allowedIps);
+            }
           }
         }
       })
@@ -59,9 +61,13 @@ export default function SettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const save = async () => {
+  const save = async (customNets?: Net[], customWifi?: boolean, customWfh?: typeof wfh) => {
     if (saving) return;
     setSaving(true);
+    const targetNets = customNets ?? nets;
+    const targetWifi = customWifi ?? wifi;
+    const targetWfh = customWfh ?? wfh;
+
     try {
       const res = await fetch("/api/admin/settings", {
         method: "PUT",
@@ -76,10 +82,10 @@ export default function SettingsPage() {
             workingDays: days,
           },
           network: {
-            enforceOfficeIp: wifi,
-            allowSameDayWfh: wfh.sameDay,
-            wfhLimitMonthly: wfh.limit,
-            allowedIps: nets,
+            enforceOfficeIp: targetWifi,
+            allowSameDayWfh: targetWfh.sameDay,
+            wfhLimitMonthly: targetWfh.limit,
+            allowedIps: targetNets,
           },
         }),
       });
@@ -87,7 +93,7 @@ export default function SettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save settings");
 
-      toast("Company settings saved to MySQL database");
+      toast("Settings saved to database");
     } catch (err: any) {
       toast(err.message || "Failed to save settings");
     } finally {
@@ -95,14 +101,46 @@ export default function SettingsPage() {
     }
   };
 
-  const addNetwork = () => {
-    if (!newNet.label || !newNet.ip) return;
-    setNets([...nets, { id: `net_${Date.now()}`, label: newNet.label, ip: newNet.ip, active: true }]);
-    setNewNet({ label: "", ip: "" });
+  const handleAddCurrentIp = async () => {
+    if (!detectedIp) return;
+    if (nets.some((n) => n.ip === detectedIp)) {
+      toast(`IP ${detectedIp} is already in the allowed list`);
+      return;
+    }
+    const updated = [
+      ...nets,
+      { id: `net_${Date.now()}`, label: "Current Office WiFi", ip: detectedIp, active: true },
+    ];
+    setNets(updated);
+    toast(`Saving ${detectedIp} to office networks...`);
+    await save(updated);
   };
 
-  const removeNet = (id: string) => {
-    setNets(nets.filter((n) => n.id !== id));
+  const addNetwork = async () => {
+    if (!newNet.label.trim() || !newNet.ip.trim()) {
+      toast("Please enter both network label and IP address");
+      return;
+    }
+    const updated = [
+      ...nets,
+      { id: `net_${Date.now()}`, label: newNet.label.trim(), ip: newNet.ip.trim(), active: true },
+    ];
+    setNets(updated);
+    setNewNet({ label: "", ip: "" });
+    toast(`Saving ${newNet.ip.trim()}...`);
+    await save(updated);
+  };
+
+  const removeNet = async (id: string) => {
+    const updated = nets.filter((n) => n.id !== id);
+    setNets(updated);
+    await save(updated);
+  };
+
+  const toggleNetActive = async (id: string, active: boolean) => {
+    const updated = nets.map((n) => (n.id === id ? { ...n, active } : n));
+    setNets(updated);
+    await save(updated);
   };
 
   return (
@@ -111,7 +149,7 @@ export default function SettingsPage() {
         title="Company settings"
         desc="Work hours, office network policies, and attendance rules."
         actions={
-          <Btn onClick={save} disabled={saving}>
+          <Btn onClick={() => save()} disabled={saving}>
             {saving ? "Saving..." : "Save changes"}
           </Btn>
         }
@@ -237,7 +275,7 @@ export default function SettingsPage() {
               <Card>
                 <CardHeader
                   title="Office network check-in verification"
-                  desc="Ensure employees check in from designated corporate office networks."
+                  desc="Ensure employees check in from designated corporate office networks. When active, check-in is locked to approved IPs unless employee has an approved WFH day."
                 />
                 <div className="p-5 border-b border-slate-100">
                   <label className="flex items-center gap-3 cursor-pointer">
@@ -245,46 +283,94 @@ export default function SettingsPage() {
                       type="checkbox"
                       checked={wifi}
                       onChange={(e) => setWifi(e.target.checked)}
-                      className="h-4 w-4 accent-pine"
+                      className="h-4 w-4 accent-pine rounded"
                     />
                     <span className="text-sm font-medium text-slate-800">
-                      Enforce office network verification for check-ins (Approved WFH days skip this check)
+                      Enforce office WiFi verification for employee presenty (check-in)
                     </span>
                   </label>
+                  <p className="mt-1 text-xs text-mute ml-7">
+                    Approved Work From Home (WFH) days automatically bypass this restriction.
+                  </p>
+                </div>
+
+                {/* Detected IP Quick-Add Box */}
+                <div className="p-5 border-b border-line bg-pine-soft/40 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-pine block">
+                      Current Detected Network IP
+                    </span>
+                    <span className="text-sm font-mono font-medium text-slate-900 mt-0.5 block">
+                      {detectedIp}
+                    </span>
+                  </div>
+                  <Btn
+                    size="sm"
+                    variant="outline"
+                    icon={Plus}
+                    disabled={saving}
+                    onClick={handleAddCurrentIp}
+                  >
+                    Add my current IP as Office WiFi
+                  </Btn>
                 </div>
 
                 <div className="p-5">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
-                    Allowed Office IP Addresses
-                  </p>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Allowed Office WiFi / Network IPs ({nets.length})
+                    </p>
+                  </div>
                   <div className="space-y-2 mb-4">
-                    {nets.map((net) => (
-                      <div
-                        key={net.id}
-                        className="flex items-center justify-between border border-line rounded-lg p-3 bg-canvas"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Wifi className="h-4 w-4 text-pine" />
-                          <div>
-                            <span className="text-sm font-medium text-slate-900 block">{net.label}</span>
-                            <span className="text-xs font-mono text-slate-500">{net.ip}</span>
+                    {nets.length === 0 ? (
+                      <p className="text-xs text-mute py-4 text-center border border-dashed border-line rounded-lg">
+                        No networks configured yet. Add your current IP or enter an office IP below.
+                      </p>
+                    ) : (
+                      nets.map((net) => (
+                        <div
+                          key={net.id}
+                          className="flex items-center justify-between border border-line rounded-lg p-3 bg-canvas"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Wifi className={cn("h-4 w-4", net.active !== false ? "text-pine" : "text-slate-300")} />
+                            <div>
+                              <span className={cn("text-sm font-medium block", net.active !== false ? "text-slate-900" : "text-slate-400 line-through")}>
+                                {net.label}
+                              </span>
+                              <span className="text-xs font-mono text-slate-500">{net.ip}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={net.active !== false}
+                                disabled={saving}
+                                onChange={(e) => toggleNetActive(net.id, e.target.checked)}
+                                className="h-3.5 w-3.5 accent-pine"
+                              />
+                              <span>Active</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeNet(net.id)}
+                              disabled={saving}
+                              className="text-slate-400 hover:text-rose-600 transition cursor-pointer"
+                              title="Delete network"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeNet(net.id)}
-                          className="text-slate-400 hover:text-rose-600 transition"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
 
                   <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-2 pt-2">
                     <input
                       className={inputCls}
-                      placeholder="Network label (e.g. Pune Office)"
+                      placeholder="Network label (e.g. Pune Office Router)"
                       value={newNet.label}
                       onChange={(e) => setNewNet({ ...newNet, label: e.target.value })}
                     />
@@ -294,8 +380,14 @@ export default function SettingsPage() {
                       value={newNet.ip}
                       onChange={(e) => setNewNet({ ...newNet, ip: e.target.value })}
                     />
-                    <Btn type="button" icon={Plus} onClick={addNetwork}>
+                    <Btn type="button" icon={saving ? Loader2 : Plus} disabled={saving} onClick={addNetwork}>
                       Add IP
+                    </Btn>
+                  </div>
+
+                  <div className="flex justify-end pt-5 mt-4 border-t border-line">
+                    <Btn onClick={() => save()} disabled={saving} icon={saving ? Loader2 : undefined}>
+                      {saving ? "Saving settings..." : "Save network settings"}
                     </Btn>
                   </div>
                 </div>

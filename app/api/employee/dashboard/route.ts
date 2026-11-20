@@ -1,21 +1,24 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { getClientIp, verifyOfficeNetwork } from '@/lib/ip';
 
-export async function GET() {
+export async function GET(req: Request) {
   await connection();
   try {
     const session = await getSessionUser();
-    let userId = session?.id;
-    let companyId = session?.companyId;
+    let userId: number = session?.id || 4;
+    let companyId: number = session?.companyId || 1;
 
     // Fallback demo employee if unauthenticated
-    if (!userId || !companyId) {
+    if (!session?.id || !session?.companyId) {
       const [defaultEmp] = await query<any[]>(
         "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
       );
-      userId = defaultEmp?.id || 4;
-      companyId = defaultEmp?.company_id || 1;
+      if (defaultEmp) {
+        userId = defaultEmp.id;
+        companyId = defaultEmp.company_id;
+      }
     }
 
     // 1. Employee Profile
@@ -27,7 +30,11 @@ export async function GET() {
       LIMIT 1
     `, [userId, companyId]);
 
-    // 2. Today's Attendance
+    // 2. Network and Office IP Verification
+    const clientIp = getClientIp(req);
+    const networkVerification = await verifyOfficeNetwork(companyId, userId, clientIp);
+
+    // 3. Today's Attendance
     const todayStr = new Date().toISOString().split('T')[0];
     const [todayAtt] = await query<any[]>(`
       SELECT check_in, check_out, mode, status, ip_address
@@ -39,7 +46,7 @@ export async function GET() {
     const checkedIn = Boolean(todayAtt?.check_in);
     const checkedOut = Boolean(todayAtt?.check_out);
 
-    // 3. Current Month Attendance Summary (November 2026)
+    // 4. Current Month Attendance Summary (November 2026)
     const [monthStats] = await query<any[]>(`
       SELECT 
         COUNT(*) AS total_recorded,
@@ -50,7 +57,7 @@ export async function GET() {
       WHERE company_id = ? AND user_id = ? AND date >= '2026-11-01' AND date <= '2026-11-30'
     `, [companyId, userId]);
 
-    // 4. Leave Balances
+    // 5. Leave Balances
     const [policy] = await query<any[]>(
       'SELECT * FROM leave_policies WHERE company_id = ? LIMIT 1',
       [companyId]
@@ -95,7 +102,7 @@ export async function GET() {
       },
     };
 
-    // 5. Latest Payslip
+    // 6. Latest Payslip
     const [latestPayslip] = await query<any[]>(`
       SELECT pi.net, pr.month, pr.paid_on
       FROM payroll_items pi
@@ -105,14 +112,14 @@ export async function GET() {
       LIMIT 1
     `, [companyId, userId]);
 
-    // 6. Pending Documents Count (Requested by HR)
+    // 7. Pending Documents Count (Requested by HR)
     const [pendingDocs] = await query<any[]>(`
       SELECT COUNT(*) AS c
       FROM documents
       WHERE company_id = ? AND user_id = ? AND status = 'Requested'
     `, [companyId, userId]);
 
-    // 7. Upcoming Holidays
+    // 8. Upcoming Holidays
     const holidays = await query<any[]>(`
       SELECT id, name, date, kind
       FROM holidays
@@ -138,10 +145,11 @@ export async function GET() {
         checkInTime: todayAtt?.check_in ? String(todayAtt.check_in).slice(0, 5) : null,
         checkedOut,
         checkOutTime: todayAtt?.check_out ? String(todayAtt.check_out).slice(0, 5) : null,
-        mode: todayAtt?.mode || 'Office',
+        mode: todayAtt?.mode || (networkVerification.mode === 'WFH' ? 'WFH' : 'Office'),
         status: todayAtt?.status || (checkedIn ? 'Present' : 'Not checked in'),
-        ipVerified: true,
-        officeIp: todayAtt?.ip_address || '203.0.113.24',
+        clientIp,
+        verification: networkVerification,
+        officeIp: todayAtt?.ip_address || clientIp,
       },
       monthSummary: {
         presentCount: Number(monthStats?.present_count || 0),

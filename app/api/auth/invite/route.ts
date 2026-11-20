@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     }
 
     const rows = await query<any[]>(
-      `SELECT i.*, c.name AS company_name, c.status AS company_status, u.name AS user_name, u.role AS user_role
+      `SELECT i.*, c.name AS company_name, c.status AS company_status, u.name AS user_name, u.role AS user_role, u.department AS user_department, u.title AS user_title
        FROM invitations i
        JOIN companies c ON i.company_id = c.id
        JOIN users u ON i.user_id = u.id
@@ -51,7 +51,9 @@ export async function GET(request: Request) {
       email: inv.email,
       userName: inv.user_name,
       companyName: inv.company_name,
-      role: inv.user_role || inv.role || 'admin',
+      role: inv.user_role || inv.role || 'employee',
+      department: inv.user_department || null,
+      title: inv.user_title || null,
     });
   } catch (error: any) {
     console.error('Validate invite error:', error);

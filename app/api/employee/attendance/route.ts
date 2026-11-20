@@ -1,20 +1,23 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { getClientIp, verifyOfficeNetwork } from '@/lib/ip';
 
 export async function GET(req: Request) {
   await connection();
   try {
     const session = await getSessionUser();
-    let userId = session?.id;
-    let companyId = session?.companyId;
+    let userId: number = session?.id || 4;
+    let companyId: number = session?.companyId || 1;
 
-    if (!userId || !companyId) {
+    if (!session?.id || !session?.companyId) {
       const [defaultEmp] = await query<any[]>(
         "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
       );
-      userId = defaultEmp?.id || 4;
-      companyId = defaultEmp?.company_id || 1;
+      if (defaultEmp) {
+        userId = defaultEmp.id;
+        companyId = defaultEmp.company_id;
+      }
     }
 
     const { searchParams } = new URL(req.url);
@@ -65,9 +68,14 @@ export async function GET(req: Request) {
       };
     });
 
+    const clientIp = getClientIp(req);
+    const verification = await verifyOfficeNetwork(companyId, userId, clientIp);
+
     return NextResponse.json({
       success: true,
       month,
+      clientIp,
+      verification,
       summary: {
         present,
         late,
@@ -86,53 +94,89 @@ export async function POST(req: Request) {
   await connection();
   try {
     const session = await getSessionUser();
-    let userId = session?.id;
-    let companyId = session?.companyId;
+    let userId: number = session?.id || 4;
+    let companyId: number = session?.companyId || 1;
 
-    if (!userId || !companyId) {
+    if (!session?.id || !session?.companyId) {
       const [defaultEmp] = await query<any[]>(
         "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
       );
-      userId = defaultEmp?.id || 4;
-      companyId = defaultEmp?.company_id || 1;
+      if (defaultEmp) {
+        userId = defaultEmp.id;
+        companyId = defaultEmp.company_id;
+      }
     }
 
     const body = await req.json();
-    const { action, mode = 'Office' } = body;
+    const { action } = body;
 
+    const clientIp = getClientIp(req);
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0]; // 'HH:mm:ss'
 
-    // Check if late (e.g. after 09:30 AM)
-    const isLate = now.getHours() > 9 || (now.getHours() === 9 && now.getMinutes() > 30);
+    // Fetch company settings to evaluate late mark & grace period
+    const [settings] = await query<any[]>(
+      'SELECT start_time, grace_minutes FROM company_settings WHERE company_id = ? LIMIT 1',
+      [companyId]
+    );
+
+    let startHour = 9;
+    let startMin = 30;
+    if (settings?.start_time) {
+      const [h, m] = String(settings.start_time).split(':').map(Number);
+      if (!isNaN(h)) startHour = h;
+      if (!isNaN(m)) startMin = m;
+    }
+    const grace = settings?.grace_minutes ?? 15;
+    const thresholdMinutes = startHour * 60 + startMin + grace;
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const isLate = currentMinutes > thresholdMinutes;
     const initialStatus = isLate ? 'Late' : 'Present';
 
     if (action === 'check_in') {
+      // 1. Verify Office Network and WFH status
+      const verification = await verifyOfficeNetwork(companyId, userId, clientIp);
+
+      if (!verification.allowed) {
+        return NextResponse.json({
+          success: false,
+          blocked: true,
+          error: `Check-in blocked: You are connected from IP ${clientIp}, which is not an authorized company WiFi network. Connect to office WiFi or submit a Work From Home request.`,
+          clientIp,
+          verification,
+        }, { status: 403 });
+      }
+
+      const assignedMode = verification.mode === 'WFH' ? 'WFH' : 'Office';
+
       await query(`
         INSERT INTO attendance (company_id, user_id, date, check_in, mode, status, ip_address)
-        VALUES (?, ?, ?, ?, ?, ?, '203.0.113.24')
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           check_in = COALESCE(check_in, VALUES(check_in)),
           mode = VALUES(mode),
+          ip_address = VALUES(ip_address),
           status = IF(status = 'Present' OR status = 'Late', status, VALUES(status))
-      `, [companyId, userId, todayStr, timeStr, mode, initialStatus]);
+      `, [companyId, userId, todayStr, timeStr, assignedMode, initialStatus, clientIp]);
 
       return NextResponse.json({
         success: true,
-        message: `Checked in at ${timeStr.slice(0, 5)} (${mode})`,
+        message: `Checked in at ${timeStr.slice(0, 5)} (${assignedMode})${isLate ? ' · Late Mark' : ''}`,
         checkInTime: timeStr.slice(0, 5),
+        mode: assignedMode,
         status: initialStatus,
+        clientIp,
       });
     }
 
     if (action === 'check_out') {
       await query(`
         INSERT INTO attendance (company_id, user_id, date, check_out, mode, status, ip_address)
-        VALUES (?, ?, ?, ?, ?, 'Present', '203.0.113.24')
+        VALUES (?, ?, ?, ?, 'Office', 'Present', ?)
         ON DUPLICATE KEY UPDATE
           check_out = VALUES(check_out)
-      `, [companyId, userId, todayStr, timeStr, mode]);
+      `, [companyId, userId, todayStr, timeStr, clientIp]);
 
       return NextResponse.json({
         success: true,

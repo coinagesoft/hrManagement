@@ -1,6 +1,7 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { getClientIp } from '@/lib/ip';
 
 async function resolveCompanyId(): Promise<number> {
   const session = await getSessionUser();
@@ -9,10 +10,11 @@ async function resolveCompanyId(): Promise<number> {
   return comps[0]?.id || 1;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   await connection();
   try {
     const companyId = await resolveCompanyId();
+    const currentClientIp = getClientIp(req);
 
     const [comp] = await query<any[]>(
       'SELECT id, name, code, email, admin_name FROM companies WHERE id = ?',
@@ -26,13 +28,21 @@ export async function GET() {
 
     let parsedIps = [];
     try {
-      parsedIps = settings?.allowed_ips ? JSON.parse(settings.allowed_ips) : [];
-    } catch {
-      parsedIps = [{ id: 'n1', label: 'Pune Head Office', ip: '203.0.113.10', active: true }];
+      if (settings?.allowed_ips) {
+        parsedIps = typeof settings.allowed_ips === 'string' ? JSON.parse(settings.allowed_ips) : settings.allowed_ips;
+      }
+    } catch (e) {
+      console.error('Error parsing allowed_ips:', e);
+      parsedIps = [];
+    }
+
+    if (!Array.isArray(parsedIps)) {
+      parsedIps = [];
     }
 
     return NextResponse.json({
       success: true,
+      currentClientIp,
       profile: {
         id: comp?.id,
         name: comp?.name || 'Acme Technologies Pvt Ltd',
@@ -64,6 +74,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
+    const session = await getSessionUser();
     const companyId = await resolveCompanyId();
     const body = await request.json();
     const { name, schedule, network } = body;
@@ -102,7 +113,20 @@ export async function PUT(request: Request) {
         updated_at = NOW()
     `, [companyId, startTime, endTime, grace, halfDay, workingDays, wfhLimit, sameDay, enforceIp, allowedIps]);
 
-    return NextResponse.json({ success: true, message: 'Settings saved successfully.' });
+    const userName = session?.name || 'Administrator';
+    const clientIp = getClientIp(request);
+    await query(`
+      INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, ip_address, created_at)
+      VALUES (?, ?, ?, 'Settings updated', 'blue', ?, ?, NOW())
+    `, [
+      companyId,
+      session?.id || null,
+      userName,
+      `Updated settings: Enforce office IP = ${enforceIp ? 'Yes' : 'No'}, allowed networks count = ${network?.allowedIps?.length || 0}`,
+      clientIp
+    ]);
+
+    return NextResponse.json({ success: true, message: 'Settings successfully updated.' });
   } catch (error: any) {
     console.error('Settings update error:', error);
     return NextResponse.json({ error: 'Failed to update company settings' }, { status: 500 });

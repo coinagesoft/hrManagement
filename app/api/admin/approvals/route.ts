@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     const leaves = await query<any[]>(`
       SELECT lr.id, lr.leave_type AS type, lr.start_date AS \`from\`, lr.end_date AS \`to\`,
              lr.days_count AS days, lr.reason, lr.status, lr.created_at,
-             u.id AS user_id, u.name AS who, u.department AS dept, u.title
+             u.id AS user_id, u.name AS who, u.employee_code AS code, u.department AS dept, u.title
       FROM leave_requests lr
       JOIN users u ON lr.user_id = u.id
       WHERE lr.company_id = ? AND (? = 'All' OR lr.status = ?)
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 
     const wfhs = await query<any[]>(`
       SELECT wr.id, wr.date, wr.reason, wr.status, wr.created_at,
-             u.id AS user_id, u.name AS who, u.department AS dept, u.title
+             u.id AS user_id, u.name AS who, u.employee_code AS code, u.department AS dept, u.title
       FROM wfh_requests wr
       JOIN users u ON wr.user_id = u.id
       WHERE wr.company_id = ? AND (? = 'All' OR wr.status = ?)
@@ -40,6 +40,9 @@ export async function GET(request: Request) {
       leaves: leaves.map((l) => ({
         id: l.id,
         who: l.who,
+        code: l.code || `EMP-${l.user_id}`,
+        dept: l.dept || 'Engineering',
+        title: l.title || 'Team Member',
         type: l.type,
         from: new Date(l.from).toISOString().split('T')[0],
         to: new Date(l.to).toISOString().split('T')[0],
@@ -50,10 +53,17 @@ export async function GET(request: Request) {
       wfhs: wfhs.map((w) => ({
         id: w.id,
         who: w.who,
+        code: w.code || `EMP-${w.user_id}`,
+        dept: w.dept || 'Engineering',
+        title: w.title || 'Team Member',
         date: new Date(w.date).toISOString().split('T')[0],
         reason: w.reason,
         status: w.status,
       })),
+      counts: {
+        pendingLeaves: leaves.filter((l) => l.status === 'Pending').length,
+        pendingWfhs: wfhs.filter((w) => w.status === 'Pending').length,
+      },
     });
   } catch (error: any) {
     console.error('Approvals fetch error:', error);

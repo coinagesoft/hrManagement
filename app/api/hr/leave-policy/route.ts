@@ -61,10 +61,11 @@ export async function PUT(req: Request) {
         updated_at = NOW()
     `, [companyId, casual, sick, paid, workingDays]);
 
+    const userName = session?.name || 'HR Manager';
     await query(
-      `INSERT INTO audit_logs (company_id, user_id, action, target_type, target_id, details)
-       VALUES (?, ?, 'update_leave_policy', 'company', ?, ?)`,
-      [companyId, session?.id || 1, companyId, `Updated leave policy: Casual ${casual}/mo, Sick ${sick}/mo, Paid ${paid}/yr, Working days ${workingDays}`]
+      `INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
+       VALUES (?, ?, ?, 'Leave policy updated', 'blue', ?, NOW())`,
+      [companyId, session?.id || null, userName, `Updated leave policy: Casual ${casual}/mo, Sick ${sick}/mo, Paid ${paid}/yr, Working days ${workingDays}`]
     );
 
     return NextResponse.json({

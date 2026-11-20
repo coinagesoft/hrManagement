@@ -19,9 +19,7 @@ const pool =
     connectTimeout: 10000,
   });
 
-if (process.env.NODE_ENV !== 'production') {
-  global._mysqlPool = pool;
-}
+global._mysqlPool = pool;
 
 export async function query<T = any>(sql: string, params: any[] = []): Promise<T> {
   const [results] = await pool.execute(sql, params);

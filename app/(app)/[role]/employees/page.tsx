@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2 } from "lucide-react";
+import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check } from "lucide-react";
 import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DEPARTMENTS } from "@/lib/mock";
@@ -17,7 +17,8 @@ interface EmployeeItem {
   dept: string;
   title: string;
   role: "ADMIN" | "HR" | "EMPLOYEE";
-  status: "Active" | "Inactive";
+  status: "Active" | "Inactive" | "Pending";
+  inviteToken?: string | null;
   joined: string;
 }
 
@@ -28,7 +29,7 @@ const blank = {
   dept: "Engineering",
   title: "",
   role: "EMPLOYEE" as EmployeeItem["role"],
-  joined: new Date().toISOString().split("T")[0],
+  joined: "2026-11-18",
 };
 
 export default function EmployeesPage() {
@@ -43,6 +44,9 @@ export default function EmployeesPage() {
   const [form, setForm] = useState(blank);
   const [off, setOff] = useState<EmployeeItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const fetchEmployees = async () => {
     try {
@@ -58,6 +62,37 @@ export default function EmployeesPage() {
     }
   };
 
+  const resendInvite = async (p: EmployeeItem) => {
+    setResendingId(p.id);
+    try {
+      const res = await fetch("/api/admin/employees/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId: p.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to resend invitation");
+      toast(`Invitation email resent to ${p.email}`);
+      fetchEmployees();
+    } catch (err: any) {
+      toast(err.message || "Failed to resend invitation");
+    } finally {
+      setResendingId(null);
+    }
+  };
+
+  const copyInviteLink = (p: EmployeeItem) => {
+    if (!p.inviteToken) {
+      toast("No active token found. Click Resend Email to generate a fresh link.");
+      return;
+    }
+    const link = `${window.location.origin}/accept-invite?token=${p.inviteToken}`;
+    navigator.clipboard.writeText(link);
+    setCopiedId(p.id);
+    toast("Activation link copied to clipboard!");
+    setTimeout(() => setCopiedId(null), 2500);
+  };
+
   useEffect(() => {
     fetchEmployees();
   }, []);
@@ -70,11 +105,13 @@ export default function EmployeesPage() {
   );
 
   function openAdd(r: EmployeeItem["role"] = "EMPLOYEE") {
+    setFormError(null);
     setForm({ ...blank, role: r, dept: r === "HR" ? "HR" : "Engineering" });
     setModal({ editing: null });
   }
 
   function openEdit(p: EmployeeItem) {
+    setFormError(null);
     setForm({
       name: p.name,
       email: p.email,
@@ -91,6 +128,7 @@ export default function EmployeesPage() {
     e.preventDefault();
     if (submitting) return;
     setSubmitting(true);
+    setFormError(null);
 
     try {
       if (modal?.editing) {
@@ -109,9 +147,13 @@ export default function EmployeesPage() {
           }),
         });
         const resJson = await res.json();
-        if (!res.ok) throw new Error(resJson.error || "Failed to update employee");
+        if (!res.ok) {
+          const err = resJson.error || "Failed to update employee";
+          setFormError(err);
+          throw new Error(err);
+        }
 
-        toast("Employee updated successfully");
+        toast(resJson.message || "Employee updated successfully");
       } else {
         const res = await fetch("/api/admin/employees", {
           method: "POST",
@@ -127,9 +169,16 @@ export default function EmployeesPage() {
           }),
         });
         const resJson = await res.json();
-        if (!res.ok) throw new Error(resJson.error || "Failed to add employee");
+        if (!res.ok) {
+          const err = resJson.error || "Failed to add employee";
+          setFormError(err);
+          throw new Error(err);
+        }
 
-        toast(`${form.role === "HR" ? "HR user" : "Employee"} added to company roster`);
+        toast(
+          resJson.message ||
+            `${form.role === "HR" ? "HR user" : "Employee"} added to company roster`
+        );
       }
 
       setModal(null);
@@ -205,6 +254,7 @@ export default function EmployeesPage() {
           <select className={`${inputCls} !w-auto`} value={status} onChange={(e) => setStatus(e.target.value)}>
             <option>All</option>
             <option>Active</option>
+            <option>Pending</option>
             <option>Inactive</option>
           </select>
         </div>
@@ -256,7 +306,32 @@ export default function EmployeesPage() {
                     <StatusBadge s={p.status} />
                   </Td>
                   <Td className="text-right">
-                    <div className="flex justify-end gap-1">
+                    <div className="flex justify-end items-center gap-1">
+                      {p.status === "Pending" && (
+                        <>
+                          <Btn
+                            size="sm"
+                            variant="ghost"
+                            icon={resendingId === p.id ? Loader2 : Mail}
+                            disabled={resendingId === p.id}
+                            onClick={() => resendInvite(p)}
+                            title="Resend invitation email"
+                          >
+                            {resendingId === p.id ? "Sending..." : "Resend"}
+                          </Btn>
+                          {p.inviteToken && (
+                            <Btn
+                              size="sm"
+                              variant="ghost"
+                              icon={copiedId === p.id ? Check : Copy}
+                              onClick={() => copyInviteLink(p)}
+                              title="Copy activation link"
+                            >
+                              {copiedId === p.id ? "Copied" : "Link"}
+                            </Btn>
+                          )}
+                        </>
+                      )}
                       <Btn size="sm" variant="ghost" icon={Pencil} onClick={() => openEdit(p)}>
                         Edit
                       </Btn>
@@ -285,7 +360,11 @@ export default function EmployeesPage() {
         onClose={() => setModal(null)}
         wide
         title={modal?.editing ? "Edit employee" : form.role === "HR" ? "Add HR user" : "Add employee"}
-        desc={modal?.editing ? undefined : "They will be registered in your company and can sign in with Password123! or set their password."}
+        desc={
+          modal?.editing
+            ? undefined
+            : "An invitation email will be automatically sent with a secure activation link to set their password."
+        }
         footer={
           <>
             <Btn variant="outline" onClick={() => setModal(null)}>
@@ -298,6 +377,21 @@ export default function EmployeesPage() {
         }
       >
         <form id="emp-form" onSubmit={save} className="grid gap-4 sm:grid-cols-2">
+          {formError && (
+            <div className="sm:col-span-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-start justify-between">
+              <div>
+                <span className="font-semibold block mb-0.5">Could not save employee:</span>
+                <span>{formError}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormError(null)}
+                className="text-red-500 hover:text-red-700 font-bold ml-3 text-base leading-none"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <Field label="Full name">
             <input required className={inputCls} value={form.name} onChange={set("name")} />
           </Field>

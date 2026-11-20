@@ -103,7 +103,17 @@ export default function ManagerDashboard() {
         title={`Dashboard · ${data?.company.name || "Company Overview"}`}
         desc="Live team overview, attendance status, and pending approvals."
         actions={
-          <>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={`/${role}/attendance`}>
+              <Btn variant="outline" icon={UserCheck}>
+                Attendance & Calendar
+              </Btn>
+            </Link>
+            <Link href={`/${role}/leaves`}>
+              <Btn variant="outline">
+                Leaves & WFH
+              </Btn>
+            </Link>
             <Link href={`/${role}/employees`}>
               <Btn variant="outline" icon={Users}>
                 Employees
@@ -112,21 +122,29 @@ export default function ManagerDashboard() {
             <Link href={`/${role}/payroll`}>
               <Btn>Run payroll</Btn>
             </Link>
-          </>
+          </div>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total employees" value={active} icon={Users} hint="Active team headcount" />
-        <StatCard
-          label="Present today"
-          value={present}
-          icon={UserCheck}
-          tone="green"
-          hint={`${active ? Math.round((present / active) * 100) : 0}% of the team`}
-        />
-        <StatCard label="On leave" value={onLeaveCount} icon={UserX} tone="indigo" hint="Approved leave today" />
-        <StatCard label="Working from home" value={wfh} icon={House} tone="teal" hint="Approved WFH today" />
+        <Link href={`/${role}/employees`} className="block transition hover:opacity-95">
+          <StatCard label="Total employees" value={active} icon={Users} hint="Active team headcount" />
+        </Link>
+        <Link href={`/${role}/attendance`} className="block transition hover:opacity-95">
+          <StatCard
+            label="Present today"
+            value={present}
+            icon={UserCheck}
+            tone="green"
+            hint={`${active ? Math.round((present / active) * 100) : 0}% of the team · View roster`}
+          />
+        </Link>
+        <Link href={`/${role}/leaves`} className="block transition hover:opacity-95">
+          <StatCard label="On leave" value={onLeaveCount} icon={UserX} tone="indigo" hint="Approved leave today · View" />
+        </Link>
+        <Link href={`/${role}/leaves`} className="block transition hover:opacity-95">
+          <StatCard label="Working from home" value={wfh} icon={House} tone="teal" hint="Approved WFH today · View" />
+        </Link>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">

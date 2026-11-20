@@ -40,6 +40,17 @@ interface SalaryStructure {
   gross: number;
 }
 
+const AVAILABLE_MONTHS = [
+  "July 2026",
+  "August 2026",
+  "September 2026",
+  "October 2026",
+  "November 2026",
+  "December 2026",
+  "January 2027",
+  "February 2027",
+];
+
 export default function PayrollPage() {
   const toast = useToast();
   const [tab, setTab] = useState<"run" | "structure">("run");
@@ -159,7 +170,22 @@ export default function PayrollPage() {
         title="Payroll"
         sub={`${month}. Review attendance-based deductions, verify net pay, and manage monthly compensation.`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 shadow-xs">
+              <span className="text-xs font-medium text-slate-500">Period:</span>
+              <select
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="bg-transparent text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+              >
+                {AVAILABLE_MONTHS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {stage === "Draft" ? (
               <Btn
                 icon={actionLoading ? Loader2 : Play}

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
     // 1. Fetch and validate invitation
     const rows = await query<any[]>(
-      `SELECT i.*, c.id AS company_id, c.name AS company_name, u.id AS user_id, u.name AS user_name, u.role AS user_role, u.employee_code
+      `SELECT i.*, c.id AS company_id, c.name AS company_name, u.id AS user_id, u.name AS user_name, u.role AS user_role, u.employee_code, u.department, u.title
        FROM invitations i
        JOIN companies c ON i.company_id = c.id
        JOIN users u ON i.user_id = u.id
@@ -52,11 +52,11 @@ export async function POST(request: Request) {
       [hashed, inv.user_id]
     );
 
-    // 4. Activate company
+    // 4. Activate company if not already active
     await query(
       `UPDATE companies 
        SET status = 'Active', updated_at = NOW() 
-       WHERE id = ?`,
+       WHERE id = ? AND status != 'Active'`,
       [inv.company_id]
     );
 
@@ -68,11 +68,17 @@ export async function POST(request: Request) {
       [inv.id]
     );
 
+    const userRole = (inv.user_role || inv.role || 'employee').toLowerCase();
+    const actionDetail =
+      userRole === 'admin'
+        ? `${inv.user_name} activated company ${inv.company_name} and set admin password`
+        : `${inv.user_name} activated their ${userRole} account and set password`;
+
     // 6. Record audit log
     await query(
       `INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
        VALUES (?, ?, ?, 'Invite accepted', 'green', ?, NOW())`,
-      [inv.company_id, inv.user_id, inv.user_name, `${inv.user_name} activated company ${inv.company_name} and set admin password`]
+      [inv.company_id, inv.user_id, inv.user_name, actionDetail]
     );
 
     // 7. Establish authenticated session
@@ -83,8 +89,9 @@ export async function POST(request: Request) {
       employeeCode: inv.employee_code,
       name: inv.user_name,
       email: inv.email,
-      role: inv.user_role as AuthRole,
-      title: 'Company Administrator',
+      role: userRole as AuthRole,
+      department: inv.department || null,
+      title: inv.title || (userRole === 'admin' ? 'Company Administrator' : userRole === 'hr' ? 'HR Manager' : 'Team Member'),
     };
 
     const sessionToken = await createSessionToken(authUser);
@@ -97,11 +104,13 @@ export async function POST(request: Request) {
       maxAge: 60 * 60 * 24 * 7, // 7 days
     });
 
+    const targetRedirect = userRole === 'admin' ? '/admin' : userRole === 'hr' ? '/hr' : '/employee';
+
     return NextResponse.json({
       success: true,
       user: authUser,
-      redirectTo: `/${authUser.role}`,
-      message: 'Account and company activated successfully!',
+      redirectTo: targetRedirect,
+      message: 'Account activated successfully!',
     });
   } catch (error: any) {
     console.error('Accept invite error:', error);

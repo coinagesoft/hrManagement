@@ -14,20 +14,99 @@ export async function GET(request: Request) {
   try {
     const companyId = await resolveCompanyId();
     const { searchParams } = new URL(request.url);
+    const monthQuery = searchParams.get('month');
+    const isExport = searchParams.get('export') === 'true';
+
+    // If month query or export requested, return full month attendance
+    if (isExport || monthQuery) {
+      let year = 2026;
+      let monthNum = 11;
+      if (monthQuery && monthQuery.includes(' ')) {
+        const parts = monthQuery.split(' ');
+        const mNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const idx = mNames.indexOf(parts[0]);
+        if (idx !== -1) monthNum = idx + 1;
+        year = parseInt(parts[1], 10) || 2026;
+      } else if (searchParams.get('year') && searchParams.get('monthNum')) {
+        year = parseInt(searchParams.get('year') || '2026', 10);
+        monthNum = parseInt(searchParams.get('monthNum') || '11', 10);
+      }
+
+      const startMonthStr = `${year}-${String(monthNum).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, monthNum, 0).getDate();
+      const endMonthStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const monthRows = await query<any[]>(`
+        SELECT 
+          a.date,
+          u.employee_code,
+          u.name,
+          u.department AS dept,
+          u.title,
+          COALESCE(a.check_in, '-') AS check_in,
+          COALESCE(a.check_out, '-') AS check_out,
+          COALESCE(a.mode, '-') AS mode,
+          COALESCE(a.status, 'Present') AS status,
+          COALESCE(a.ip_address, '-') AS ip,
+          a.notes
+        FROM attendance a
+        JOIN users u ON a.user_id = u.id
+        WHERE u.company_id = ?
+          AND a.date >= ? AND a.date <= ?
+        ORDER BY a.date DESC, u.name ASC
+      `, [companyId, startMonthStr, endMonthStr]);
+
+      const records = monthRows.map((r) => ({
+        date: new Date(r.date).toISOString().split('T')[0],
+        employeeCode: r.employee_code || '-',
+        name: r.name,
+        dept: r.dept || 'Engineering',
+        title: r.title || 'Team Member',
+        checkIn: r.check_in ? String(r.check_in).slice(0, 5) : '-',
+        checkOut: r.check_out ? String(r.check_out).slice(0, 5) : '-',
+        mode: r.mode || 'Office',
+        status: r.status || 'Present',
+        ip: r.ip || '-',
+        notes: r.notes || '',
+      }));
+
+      return NextResponse.json({
+        success: true,
+        year,
+        month: monthNum,
+        startMonthStr,
+        endMonthStr,
+        records,
+      });
+    }
+
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
 
     const rows = await query<any[]>(`
       SELECT u.id AS user_id, u.employee_code, u.name, u.department AS dept, u.title,
-             COALESCE(a.status, 'Absent') AS status,
-             COALESCE(a.mode, '-') AS mode,
+             CASE
+               WHEN a.status IS NOT NULL THEN a.status
+               WHEN lr.id IS NOT NULL THEN 'On leave'
+               ELSE 'Absent'
+             END AS status,
+             CASE
+               WHEN a.mode IS NOT NULL AND a.mode != '' AND a.mode != '-' THEN a.mode
+               WHEN wr.id IS NOT NULL THEN 'WFH'
+               WHEN lr.id IS NOT NULL THEN lr.leave_type
+               ELSE '-'
+             END AS mode,
              a.check_in AS \`in\`,
              a.check_out AS \`out\`,
-             COALESCE(a.ip_address, '-') AS ip
+             COALESCE(a.ip_address, '-') AS ip,
+             lr.reason AS leave_reason,
+             lr.leave_type
       FROM users u
       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = ?
-      WHERE u.company_id = ? AND u.status = 'Active'
+      LEFT JOIN leave_requests lr ON lr.user_id = u.id AND lr.status = 'Approved' AND ? BETWEEN lr.start_date AND lr.end_date
+      LEFT JOIN wfh_requests wr ON wr.user_id = u.id AND wr.status = 'Approved' AND wr.date = ?
+      WHERE u.company_id = ? AND u.status = 'Active' AND u.role != 'super'
       ORDER BY u.name ASC
-    `, [date, companyId]);
+    `, [date, date, date, companyId]);
 
     const roster = rows.map((r) => ({
       userId: r.user_id,
@@ -40,9 +119,20 @@ export async function GET(request: Request) {
       in: r.in ? String(r.in).slice(0, 5) : '-',
       out: r.out ? String(r.out).slice(0, 5) : '-',
       ip: r.ip,
+      leaveReason: r.leave_reason || null,
+      leaveType: r.leave_type || null,
     }));
 
-    return NextResponse.json({ success: true, date, roster });
+    const counts = {
+      total: roster.length,
+      present: roster.filter((r) => r.status === 'Present').length,
+      late: roster.filter((r) => r.status === 'Late').length,
+      onLeave: roster.filter((r) => r.status === 'On leave').length,
+      wfh: roster.filter((r) => r.mode === 'WFH').length,
+      absent: roster.filter((r) => r.status === 'Absent').length,
+    };
+
+    return NextResponse.json({ success: true, date, roster, counts });
   } catch (error: any) {
     console.error('Attendance fetch error:', error);
     return NextResponse.json({ error: 'Failed to retrieve attendance' }, { status: 500 });

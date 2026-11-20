@@ -36,9 +36,9 @@ export default function EmployeeMessagesPage() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const RECIPIENTS = [
-    { id: "emp_4:hr", label: "HR · Priya Deshmukh" },
-    { id: "emp_4:admin", label: "Admin · Aarav Sharma" },
+  const recipients = [
+    { id: `emp_${userId}:hr`, label: "HR Department · Priya Deshmukh" },
+    { id: `emp_${userId}:admin`, label: "Company Admin · Aarav Sharma" },
   ];
 
   const fetchMessages = async (threadId?: string) => {
@@ -48,7 +48,7 @@ export default function EmployeeMessagesPage() {
       const currentId = meJson?.user?.id || 4;
       setUserId(currentId);
 
-      const targetThread = threadId || activeThread || `emp_${currentId}:hr`;
+      const targetThread = threadId || (activeThread.startsWith(`emp_${currentId}`) ? activeThread : `emp_${currentId}:hr`);
       const url = `/api/hr/messages?threadId=${encodeURIComponent(targetThread)}`;
       const res = await fetch(url);
       const json = await res.json();
@@ -117,7 +117,7 @@ export default function EmployeeMessagesPage() {
               Conversations
             </div>
             <ul className="divide-y divide-line">
-              {RECIPIENTS.map((r) => {
+              {recipients.map((r) => {
                 const isActive = r.id === activeThread;
                 return (
                   <li key={r.id}>
@@ -141,7 +141,7 @@ export default function EmployeeMessagesPage() {
           <div className="flex flex-col min-w-0">
             <div className="flex items-center justify-between border-b border-line px-5 py-3 bg-white">
               <h3 className="font-semibold text-slate-900">
-                {RECIPIENTS.find((r) => r.id === activeThread)?.label || "HR Support"}
+                {recipients.find((r) => r.id === activeThread)?.label || "HR Support"}
               </h3>
             </div>
 

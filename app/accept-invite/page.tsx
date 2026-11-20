@@ -22,6 +22,8 @@ interface InviteDetails {
   userName: string;
   companyName: string;
   role: string;
+  department?: string;
+  title?: string;
 }
 
 function AcceptInviteContent() {
@@ -88,7 +90,7 @@ function AcceptInviteContent() {
 
       setActivated(true);
       setTimeout(() => {
-        router.push(data.redirectTo || "/admin");
+        router.push(data.redirectTo || (invite?.role ? `/${invite.role}` : "/employee"));
         router.refresh();
       }, 1200);
     } catch (err: any) {
@@ -129,6 +131,14 @@ function AcceptInviteContent() {
     );
   }
 
+  const roleLower = (invite?.role || "employee").toLowerCase();
+  const roleName =
+    roleLower === "admin"
+      ? "Administrator"
+      : roleLower === "hr"
+      ? "HR Manager"
+      : "Employee";
+
   if (activated) {
     return (
       <AuthFrame>
@@ -136,9 +146,10 @@ function AcceptInviteContent() {
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 mb-4">
             <CheckCircle2 className="h-8 w-8" />
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Account & Company Activated!</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Account Activated!</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Welcome aboard, <strong>{invite?.userName}</strong>. Redirecting you straight to your <strong>{invite?.companyName}</strong> dashboard...
+            Welcome aboard, <strong>{invite?.userName}</strong>. Redirecting you straight to your{" "}
+            <strong>{roleName} Portal</strong>...
           </p>
           <div className="mt-6 flex justify-center">
             <Loader2 className="h-5 w-5 animate-spin text-pine" />
@@ -156,7 +167,22 @@ function AcceptInviteContent() {
       </div>
       <h1 className="text-2xl font-semibold tracking-tight">Welcome, {invite?.userName}</h1>
       <p className="mt-1 text-sm text-slate-500">
-        You have been invited to set up and manage <strong>{invite?.companyName}</strong> ({invite?.email}). Set a secure password to activate your company and account.
+        {roleLower === "admin" ? (
+          <>
+            You have been invited to set up and manage <strong>{invite?.companyName}</strong> (
+            {invite?.email}). Set a secure password to activate your company and administrator account.
+          </>
+        ) : roleLower === "hr" ? (
+          <>
+            You have been invited to join <strong>{invite?.companyName}</strong> as HR Manager (
+            {invite?.email}). Set a secure password to activate your account and access your HR portal.
+          </>
+        ) : (
+          <>
+            You have been invited to join <strong>{invite?.companyName}</strong> as a team member (
+            {invite?.email}). Set a secure password to activate your account and access your employee portal.
+          </>
+        )}
       </p>
 
       {error && (
@@ -205,10 +231,12 @@ function AcceptInviteContent() {
           {submitting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              Activating company...
+              Activating account...
             </>
-          ) : (
+          ) : roleLower === "admin" ? (
             "Activate account & company"
+          ) : (
+            "Activate account & sign in"
           )}
         </Btn>
       </form>

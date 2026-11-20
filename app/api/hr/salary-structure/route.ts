@@ -93,10 +93,11 @@ export async function PUT(req: Request) {
         updated_at = NOW()
     `, [companyId, userId, b, h, o, f]);
 
+    const userName = session?.name || 'HR Manager';
     await query(
-      `INSERT INTO audit_logs (company_id, user_id, action, target_type, target_id, details)
-       VALUES (?, ?, 'update_salary_structure', 'user', ?, ?)`,
-      [companyId, session?.id || 1, userId, `Updated salary: Basic ₹${b}, HRA ₹${h}, Other ₹${o}, Fixed ₹${f}`]
+      `INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
+       VALUES (?, ?, ?, 'Salary structure updated', 'green', ?, NOW())`,
+      [companyId, session?.id || null, userName, `Updated salary: Basic ₹${b}, HRA ₹${h}, Other ₹${o}, Fixed ₹${f}`]
     );
 
     return NextResponse.json({

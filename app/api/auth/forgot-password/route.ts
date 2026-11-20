@@ -50,9 +50,9 @@ export async function POST(req: Request) {
     // 4. Audit Log
     if (user.company_id) {
       await query(`
-        INSERT INTO audit_logs (company_id, user_id, action, target_type, target_id, details)
-        VALUES (?, ?, 'forgot_password_requested', 'user', ?, ?)
-      `, [user.company_id, user.id, user.id, `Password reset link requested for ${cleanEmail}`]);
+        INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
+        VALUES (?, ?, ?, 'Password reset requested', 'amber', ?, NOW())
+      `, [user.company_id, user.id, user.name, `Password reset link requested for ${cleanEmail}`]);
     }
 
     return NextResponse.json({

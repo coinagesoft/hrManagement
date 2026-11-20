@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CheckCircle2, Clock, FileWarning, Loader2, LogIn, LogOut, Calendar } from "lucide-react";
+import { CheckCircle2, Clock, FileWarning, Loader2, LogIn, LogOut, Calendar, Wifi, WifiOff, House, AlertTriangle } from "lucide-react";
 import { PageHeader, Card, Stat } from "@/components/ui";
 import { useToast } from "@/components/interactive";
 import { fmtINR } from "@/lib/dates";
@@ -25,8 +25,18 @@ interface DashboardData {
     checkOutTime: string | null;
     mode: string;
     status: string;
-    ipVerified: boolean;
+    clientIp: string;
     officeIp: string;
+    verification?: {
+      allowed: boolean;
+      mode: "Office" | "WFH" | "Blocked";
+      isEnforced: boolean;
+      isWfhApproved: boolean;
+      clientIp: string;
+      reason: string;
+      label: string;
+      matchedNetwork?: string | null;
+    };
   };
   monthSummary: {
     presentCount: number;
@@ -94,7 +104,7 @@ export default function EmployeeHomePage() {
       const res = await fetch("/api/employee/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, mode: "Office" }),
+        body: JSON.stringify({ action }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Attendance action failed");
@@ -123,9 +133,12 @@ export default function EmployeeHomePage() {
   const payslip = data?.latestPayslip;
   const holidays = data?.upcomingHolidays || [];
   const pendingDocs = data?.pendingDocsCount || 0;
+  const verif = today?.verification;
 
   const totalLeaveLeft =
     (leave?.casual.left || 0) + (leave?.sick.left || 0) + (leave?.paid.left || 0);
+
+  const isNetworkAllowed = verif?.allowed ?? true;
 
   return (
     <>
@@ -134,23 +147,60 @@ export default function EmployeeHomePage() {
         sub={`${user?.title} · ${user?.companyName}`}
       />
 
-      {/* Clock-in Punch Section */}
+      {/* Clock-in Punch & Network Status Section */}
       <section className="rounded-xl border border-line bg-white p-6 sm:p-8 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div>
             <p className="num text-6xl font-semibold tracking-tight text-slate-900">{timeStr}</p>
-            <p className="mt-3 flex items-center gap-2 text-sm text-slate-700">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              Office network verified <span className="num text-mute">{today?.officeIp || "203.0.113.24"}</span>
-            </p>
+
+            {/* Dynamic Network Status Indicator */}
+            <div className="mt-3.5">
+              {verif?.mode === "Office" ? (
+                <div className="flex items-center gap-2 text-sm text-emerald-800 font-medium">
+                  <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <Wifi className="h-4 w-4 text-emerald-600" />
+                  <span>
+                    Office network verified: <b>{verif.label}</b> ({today?.clientIp})
+                  </span>
+                </div>
+              ) : verif?.mode === "WFH" ? (
+                <div className="flex items-center gap-2 text-sm text-teal-800 font-medium">
+                  <span className="flex h-2.5 w-2.5 rounded-full bg-teal-500 animate-pulse" />
+                  <House className="h-4 w-4 text-teal-600" />
+                  <span>
+                    Approved Work From Home today ({today?.clientIp}) · Network restriction bypassed
+                  </span>
+                </div>
+              ) : verif?.isEnforced === false ? (
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="flex h-2.5 w-2.5 rounded-full bg-blue-500" />
+                  <span>Network verification policy disabled ({today?.clientIp})</span>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2 text-sm text-rose-700 font-medium">
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+                    <WifiOff className="h-4 w-4 text-rose-600" />
+                    <span>
+                      Not on Office WiFi ({today?.clientIp})
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-600">
+                    Attendance is locked to company WiFi. Please connect to office network or request WFH.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col items-stretch gap-2 sm:items-end">
             {!today?.checkedIn ? (
               <button
-                disabled={clocking}
+                disabled={clocking || !isNetworkAllowed}
                 onClick={() => handleAttendance("check_in")}
-                className="btn px-8 py-3 text-base flex items-center justify-center gap-2"
+                className={`btn px-8 py-3 text-base flex items-center justify-center gap-2 ${
+                  !isNetworkAllowed ? "opacity-50 cursor-not-allowed bg-slate-300 border-slate-300" : ""
+                }`}
               >
                 {clocking ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogIn className="h-5 w-5" />}
                 Check in

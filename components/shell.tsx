@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { RoleProvider } from "@/lib/role";
 
 const NAV = {
   super: [
@@ -12,7 +13,8 @@ const NAV = {
   admin: [
     ["Dashboard", "/admin"],
     ["Employees", "/admin/employees"],
-    ["Calendar", "/admin/calendar"],
+    ["Attendance & Calendar", "/admin/attendance"],
+    ["Leaves & WFH", "/admin/leaves"],
     ["Documents", "/admin/documents"],
     ["Messages", "/admin/messages"],
     ["Settings", "/admin/settings"],
@@ -20,7 +22,8 @@ const NAV = {
   hr: [
     ["Dashboard", "/hr"],
     ["Employees", "/hr/employees"],
-    ["Calendar & approvals", "/hr/calendar"],
+    ["Attendance & Calendar", "/hr/attendance"],
+    ["Leaves & WFH", "/hr/leaves"],
     ["Documents", "/hr/documents"],
     ["Payroll", "/hr/payroll"],
     ["Messages", "/hr/messages"],
@@ -99,7 +102,8 @@ export function Shell({ role, children }: { role: Role; children: React.ReactNod
   const roleNav = NAV[role] || NAV.employee;
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
+    <RoleProvider value={role}>
+      <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
       <aside className="flex flex-col border-b border-line bg-white md:sticky md:top-0 md:h-screen md:border-b-0 md:border-r">
         <div className="flex items-center gap-2.5 px-5 py-4">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-pine text-sm font-bold text-white">H</span>
@@ -157,6 +161,7 @@ export function Shell({ role, children }: { role: Role; children: React.ReactNod
         <main className="mx-auto max-w-6xl p-6">{children}</main>
       </div>
     </div>
+  </RoleProvider>
   );
 }
 

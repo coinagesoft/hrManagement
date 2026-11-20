@@ -111,6 +111,18 @@ export async function GET(req: Request) {
       [companyId]
     );
 
+    // 6. Fetch daily attendance statistics for this month
+    const attendanceStats = await query<any[]>(`
+      SELECT 
+        date,
+        SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) AS present_count,
+        SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) AS late_count,
+        SUM(CASE WHEN mode = 'WFH' THEN 1 ELSE 0 END) AS wfh_count
+      FROM attendance
+      WHERE company_id = ? AND date >= ? AND date <= ?
+      GROUP BY date
+    `, [companyId, startMonthStr, endMonthStr]);
+
     // Format dates cleanly
     const fmt = (d: any) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0]);
 
@@ -119,6 +131,12 @@ export async function GET(req: Request) {
       year,
       month,
       holidays: holidays.map((h) => ({ id: h.id, name: h.name, date: fmt(h.date), kind: h.kind })),
+      attendanceStats: attendanceStats.map((s) => ({
+        date: fmt(s.date),
+        present: Number(s.present_count || 0),
+        late: Number(s.late_count || 0),
+        wfh: Number(s.wfh_count || 0),
+      })),
       leaves: leaves.map((l) => ({
         id: l.id,
         userId: l.user_id,

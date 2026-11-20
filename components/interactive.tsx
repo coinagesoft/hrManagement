@@ -1,29 +1,154 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { CheckCircle2, X } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useState, useMemo, type ReactNode } from "react";
+import { CheckCircle2, AlertCircle, AlertTriangle, Info, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-// ---------- Toast ----------
-const ToastCtx = createContext<(msg: string) => void>(() => {});
+// ---------- Toast Types & Context ----------
+export type ToastType = "success" | "error" | "warning" | "info";
+
+export interface ToastItem {
+  id: number;
+  message: string;
+  type: ToastType;
+  title?: string;
+}
+
+export type ToastFunction = {
+  (message: string, type?: ToastType, title?: string): void;
+  success: (message: string, title?: string) => void;
+  error: (message: string, title?: string) => void;
+  warning: (message: string, title?: string) => void;
+  info: (message: string, title?: string) => void;
+};
+
+function detectToastType(msg: string): ToastType {
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("error") ||
+    lower.includes("fail") ||
+    lower.includes("cannot") ||
+    lower.includes("denied") ||
+    lower.includes("blocked") ||
+    lower.includes("reject") ||
+    lower.includes("invalid") ||
+    lower.includes("problem") ||
+    lower.includes("not allowed") ||
+    lower.includes("already exist") ||
+    lower.includes("unauthorized")
+  ) {
+    return "error";
+  }
+  if (
+    lower.includes("warning") ||
+    lower.includes("caution") ||
+    lower.includes("pending") ||
+    lower.includes("expire") ||
+    lower.includes("required")
+  ) {
+    return "warning";
+  }
+  return "success";
+}
+
+const defaultToastFn: ToastFunction = Object.assign(
+  (msg: string, type?: ToastType, title?: string) => {},
+  {
+    success: (msg: string, title?: string) => {},
+    error: (msg: string, title?: string) => {},
+    warning: (msg: string, title?: string) => {},
+    info: (msg: string, title?: string) => {},
+  }
+);
+
+const ToastCtx = createContext<ToastFunction>(defaultToastFn);
 export const useToast = () => useContext(ToastCtx);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<{ id: number; msg: string }[]>([]);
-  const push = useCallback((msg: string) => {
-    const id = Date.now() + Math.random();
-    setItems((s) => [...s, { id, msg }]);
-    setTimeout(() => setItems((s) => s.filter((i) => i.id !== id)), 3200);
+  const [items, setItems] = useState<ToastItem[]>([]);
+
+  const remove = useCallback((id: number) => {
+    setItems((s) => s.filter((i) => i.id !== id));
   }, []);
+
+  const push = useCallback(
+    (message: string, type?: ToastType, title?: string) => {
+      if (!message) return;
+      const resolvedType = type || detectToastType(message);
+      const id = Date.now() + Math.random();
+      const item: ToastItem = { id, message, type: resolvedType, title };
+
+      setItems((s) => [...s, item]);
+      const duration = resolvedType === "error" || resolvedType === "warning" ? 6000 : 4000;
+      setTimeout(() => {
+        setItems((s) => s.filter((i) => i.id !== id));
+      }, duration);
+    },
+    []
+  );
+
+  const toast = useMemo<ToastFunction>(() => {
+    const fn = (message: string, type?: ToastType, title?: string) => push(message, type, title);
+    fn.success = (msg: string, title?: string) => push(msg, "success", title);
+    fn.error = (msg: string, title?: string) => push(msg, "error", title);
+    fn.warning = (msg: string, title?: string) => push(msg, "warning", title);
+    fn.info = (msg: string, title?: string) => push(msg, "info", title);
+    return fn;
+  }, [push]);
+
   return (
-    <ToastCtx.Provider value={push}>
+    <ToastCtx.Provider value={toast}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
-        {items.map((i) => (
-          <div key={i.id} className="pointer-events-auto flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-sm text-white shadow-lg">
-            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            {i.msg}
-          </div>
-        ))}
+      <div className="pointer-events-none fixed top-4 right-4 z-[9999] flex flex-col gap-2.5 max-w-sm sm:max-w-md w-full px-4 sm:px-0">
+        {items.map((i) => {
+          const isError = i.type === "error";
+          const isWarning = i.type === "warning";
+          const isInfo = i.type === "info";
+
+          const borderCls = isError
+            ? "border-l-4 border-l-rose-500 border-rose-500/20"
+            : isWarning
+            ? "border-l-4 border-l-amber-500 border-amber-500/20"
+            : isInfo
+            ? "border-l-4 border-l-sky-500 border-sky-500/20"
+            : "border-l-4 border-l-emerald-500 border-emerald-500/20";
+
+          return (
+            <div
+              key={i.id}
+              role="alert"
+              className={cn(
+                "pointer-events-auto flex items-start gap-3 rounded-xl bg-slate-900/95 text-white p-4 shadow-xl backdrop-blur-md transition-all duration-200 border",
+                borderCls
+              )}
+            >
+              {isError ? (
+                <AlertCircle className="h-5 w-5 text-rose-400 shrink-0 mt-0.5" />
+              ) : isWarning ? (
+                <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+              ) : isInfo ? (
+                <Info className="h-5 w-5 text-sky-400 shrink-0 mt-0.5" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+              )}
+              <div className="flex-1 min-w-0 pr-1">
+                {i.title && (
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                    {i.title}
+                  </p>
+                )}
+                <p className="text-sm font-medium leading-relaxed break-words">{i.message}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => remove(i.id)}
+                className="ml-auto -mr-1 -mt-1 rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white transition"
+                aria-label="Dismiss alert"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastCtx.Provider>
   );

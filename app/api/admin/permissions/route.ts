@@ -64,10 +64,11 @@ export async function PUT(req: Request) {
       ON DUPLICATE KEY UPDATE permissions = VALUES(permissions), updated_at = NOW()
     `, [companyId, jsonStr]);
 
+    const userName = session?.name || 'Administrator';
     await query(`
-      INSERT INTO audit_logs (company_id, user_id, action, target_type, target_id, details)
-      VALUES (?, ?, 'update_permissions', 'company_settings', ?, ?)
-    `, [companyId, session?.id || 1, companyId, 'Updated role-based access permissions matrix']);
+      INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
+      VALUES (?, ?, ?, 'Permissions updated', 'blue', ?, NOW())
+    `, [companyId, session?.id || null, userName, 'Updated role-based access permissions matrix']);
 
     return NextResponse.json({
       success: true,

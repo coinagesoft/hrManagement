@@ -101,10 +101,11 @@ export async function POST(req: Request) {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `, [companyId, userId, kind, requestedBy, status, todayStr, note || null]);
 
+    const userName = session?.name || 'HR Manager';
     await query(
-      `INSERT INTO audit_logs (company_id, user_id, action, target_type, target_id, details)
-       VALUES (?, ?, 'request_document', 'document', ?, ?)`,
-      [companyId, session?.id || 1, result.insertId, `Requested ${kind} from user ID ${userId}`]
+      `INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
+       VALUES (?, ?, ?, 'Document requested', 'blue', ?, NOW())`,
+      [companyId, session?.id || null, userName, `Requested ${kind} from user ID ${userId}`]
     );
 
     return NextResponse.json({
