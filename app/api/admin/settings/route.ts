@@ -79,7 +79,7 @@ export async function PUT(request: Request) {
     const body = await request.json();
     const { name, schedule, network } = body;
 
-    // Update company name if provided
+    // Update company name if provide
     if (name) {
       await query('UPDATE companies SET name = ?, updated_at = NOW() WHERE id = ?', [name.trim(), companyId]);
     }
