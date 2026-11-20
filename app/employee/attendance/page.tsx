@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, LogIn, LogOut, CheckCircle2, Wifi, WifiOff, House } from "lucide-react";
+import { Loader2, LogIn, LogOut, CheckCircle2, Wifi, WifiOff, House, Clock, XCircle } from "lucide-react";
 import { PageHeader, Card, Stat, Table, Badge, Td, Th, Btn } from "@/components/ui";
-import { useToast } from "@/components/interactive";
+import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 
 interface AttendanceRecord {
   id: number;
@@ -30,6 +30,9 @@ export default function AttendancePage() {
     onLeave: 0,
   });
   const [todayStr, setTodayStr] = useState("2026-11-20");
+  const [wfhModalOpen, setWfhModalOpen] = useState(false);
+  const [wfhReason, setWfhReason] = useState("");
+  const [submittingWfh, setSubmittingWfh] = useState(false);
 
   const fetchAttendance = async () => {
     setLoading(true);
@@ -46,6 +49,34 @@ export default function AttendancePage() {
       console.error("Failed to load attendance:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuickWfh = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingWfh(true);
+    try {
+      const res = await fetch("/api/employee/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "Work from home",
+          from: todayStr,
+          to: todayStr,
+          why: wfhReason.trim() || "Work From Home for today",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to submit WFH request");
+
+      toast.success("Work From Home request sent to HR. Awaiting approval.");
+      setWfhModalOpen(false);
+      setWfhReason("");
+      await fetchAttendance();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit WFH request");
+    } finally {
+      setSubmittingWfh(false);
     }
   };
 
@@ -111,11 +142,23 @@ export default function AttendancePage() {
               <Wifi className="h-4 w-4 text-emerald-600" />
               <span>Office WiFi Verified: <b>{verification.label}</b> ({clientIp})</span>
             </div>
-          ) : verification?.mode === "WFH" ? (
-            <div className="mt-1 flex items-center gap-2 text-sm text-teal-800 font-medium">
-              <span className="h-2.5 w-2.5 rounded-full bg-teal-500 animate-pulse" />
-              <House className="h-4 w-4 text-teal-600" />
-              <span>Approved Work From Home today ({clientIp})</span>
+          ) : verification?.wfhStatus === "Approved" ? (
+            <div className="mt-1 flex items-center gap-2 text-sm text-emerald-800 font-medium">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <House className="h-4 w-4 text-emerald-600" />
+              <span>Work From Home <b>Approved by HR</b> for today ({clientIp}) · Check-in unlocked</span>
+            </div>
+          ) : verification?.wfhStatus === "Pending" ? (
+            <div className="mt-1 flex items-center gap-2 text-sm text-amber-800 font-medium">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <Clock className="h-4 w-4 text-amber-600" />
+              <span>WFH request is <b>Pending HR Approval</b> ({clientIp})</span>
+            </div>
+          ) : verification?.wfhStatus === "Rejected" ? (
+            <div className="mt-1 flex items-center gap-2 text-sm text-rose-800 font-medium">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+              <XCircle className="h-4 w-4 text-rose-600" />
+              <span>WFH request was <b>Rejected by HR</b> · Office WiFi required</span>
             </div>
           ) : verification?.isEnforced === false ? (
             <div className="mt-1 flex items-center gap-2 text-sm text-slate-700">
@@ -126,21 +169,49 @@ export default function AttendancePage() {
             <div className="mt-1 flex items-center gap-2 text-sm text-rose-700 font-medium">
               <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
               <WifiOff className="h-4 w-4 text-rose-600" />
-              <span>Not on office WiFi ({clientIp}). <Link href="/employee/leave" className="underline font-semibold ml-1">Request WFH</Link></span>
+              <span>Not on office WiFi ({clientIp}). Submit a WFH request to check in.</span>
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!isCheckedIn ? (
-            <Btn
-              disabled={clocking || !isAllowed}
-              icon={clocking ? Loader2 : LogIn}
-              onClick={() => handlePunch("check_in")}
-              className={!isAllowed ? "opacity-50 cursor-not-allowed" : ""}
-            >
-              Check in today
-            </Btn>
+            <>
+              {verification?.wfhStatus !== "Approved" && verification?.wfhStatus !== "Pending" && !isAllowed && (
+                <Btn
+                  variant="outline"
+                  icon={House}
+                  onClick={() => setWfhModalOpen(true)}
+                  className="text-pine border-pine hover:bg-pine-soft"
+                >
+                  Request WFH for Today
+                </Btn>
+              )}
+              <Btn
+                disabled={clocking || !isAllowed}
+                icon={
+                  clocking
+                    ? Loader2
+                    : verification?.wfhStatus === "Pending"
+                    ? Clock
+                    : LogIn
+                }
+                onClick={() => handlePunch("check_in")}
+                className={
+                  !isAllowed
+                    ? verification?.wfhStatus === "Pending"
+                      ? "opacity-75 cursor-not-allowed bg-amber-600 border-amber-600 text-white"
+                      : "opacity-50 cursor-not-allowed"
+                    : ""
+                }
+              >
+                {verification?.wfhStatus === "Pending"
+                  ? "Awaiting HR Approval"
+                  : verification?.wfhStatus === "Approved"
+                  ? "Check in (WFH)"
+                  : "Check in today"}
+              </Btn>
+            </>
           ) : !isCheckedOut ? (
             <Btn
               variant="outline"
@@ -223,6 +294,46 @@ export default function AttendancePage() {
           </Table>
         )}
       </Card>
+
+      {/* Quick Request WFH Modal */}
+      <Modal
+        open={wfhModalOpen}
+        onClose={() => setWfhModalOpen(false)}
+        title="Request Work From Home (Today)"
+        desc="Submit your request to HR. Once HR approves, check-in will be unlocked."
+        footer={
+          <>
+            <Btn variant="outline" onClick={() => setWfhModalOpen(false)}>
+              Cancel
+            </Btn>
+            <Btn
+              type="submit"
+              form="quick-wfh-att-form"
+              disabled={submittingWfh}
+              icon={submittingWfh ? Loader2 : House}
+            >
+              {submittingWfh ? "Submitting..." : "Send Request to HR"}
+            </Btn>
+          </>
+        }
+      >
+        <form id="quick-wfh-att-form" onSubmit={handleQuickWfh} className="space-y-4">
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 flex items-center justify-between">
+            <span>Date: <b>Today ({todayStr})</b></span>
+            <span>Your Network IP: <b>{clientIp}</b></span>
+          </div>
+
+          <Field label="Reason for working from home" hint="HR will review this reason to approve your request.">
+            <textarea
+              className={`${inputCls} min-h-[90px] resize-none`}
+              required
+              placeholder="e.g. Health issue, urgent domestic commitment, or remote assignment"
+              value={wfhReason}
+              onChange={(e) => setWfhReason(e.target.value)}
+            />
+          </Field>
+        </form>
+      </Modal>
     </>
   );
 }

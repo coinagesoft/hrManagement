@@ -143,15 +143,26 @@ export async function POST(req: Request) {
     }
 
     if (kind === 'Work from home' || kind === 'WFH') {
-      const res = await query<any>(`
-        INSERT INTO wfh_requests (company_id, user_id, date, reason, status)
-        VALUES (?, ?, ?, ?, 'Pending')
-      `, [companyId, userId, from, why?.trim() || null]);
+      const cur = new Date(from);
+      const end = new Date(endDate);
+      let count = 0;
+
+      while (cur <= end) {
+        const curDateStr = cur.toISOString().split('T')[0];
+        await query(`
+          INSERT INTO wfh_requests (company_id, user_id, date, reason, status)
+          VALUES (?, ?, ?, ?, 'Pending')
+          ON DUPLICATE KEY UPDATE reason = VALUES(reason), status = 'Pending'
+        `, [companyId, userId, curDateStr, why?.trim() || null]);
+        count++;
+        cur.setDate(cur.getDate() + 1);
+      }
 
       return NextResponse.json({
         success: true,
-        message: 'Work from home request sent to HR',
-        id: res.insertId,
+        message: count > 1
+          ? `Work from home request for ${count} days sent to HR (Pending Approval)`
+          : 'Work from home request sent to HR (Pending Approval)',
       });
     }
 

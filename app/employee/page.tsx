@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CheckCircle2, Clock, FileWarning, Loader2, LogIn, LogOut, Calendar, Wifi, WifiOff, House, AlertTriangle } from "lucide-react";
-import { PageHeader, Card, Stat } from "@/components/ui";
-import { useToast } from "@/components/interactive";
+import { CheckCircle2, Clock, FileWarning, Loader2, LogIn, LogOut, Calendar, Wifi, WifiOff, House, AlertTriangle, XCircle } from "lucide-react";
+import { PageHeader, Card, Stat, Btn } from "@/components/ui";
+import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { fmtINR } from "@/lib/dates";
 
 interface DashboardData {
@@ -32,6 +32,8 @@ interface DashboardData {
       mode: "Office" | "WFH" | "Blocked";
       isEnforced: boolean;
       isWfhApproved: boolean;
+      wfhStatus?: "Approved" | "Pending" | "Rejected" | "None";
+      wfhReason?: string | null;
       clientIp: string;
       reason: string;
       label: string;
@@ -69,6 +71,9 @@ export default function EmployeeHomePage() {
   const [loading, setLoading] = useState(true);
   const [clocking, setClocking] = useState(false);
   const [timeStr, setTimeStr] = useState("09:42");
+  const [wfhModalOpen, setWfhModalOpen] = useState(false);
+  const [wfhReason, setWfhReason] = useState("");
+  const [submittingWfh, setSubmittingWfh] = useState(false);
 
   const fetchDashboard = async () => {
     try {
@@ -81,6 +86,35 @@ export default function EmployeeHomePage() {
       console.error("Failed to load employee dashboard:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuickWfhRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingWfh(true);
+    const todayStr = new Date().toISOString().split("T")[0];
+    try {
+      const res = await fetch("/api/employee/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "Work from home",
+          from: todayStr,
+          to: todayStr,
+          why: wfhReason.trim() || "Work From Home for today",
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to submit WFH request");
+
+      toast.success("Work From Home request sent to HR. Awaiting approval.");
+      setWfhModalOpen(false);
+      setWfhReason("");
+      await fetchDashboard();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit WFH request");
+    } finally {
+      setSubmittingWfh(false);
     }
   };
 
@@ -163,13 +197,44 @@ export default function EmployeeHomePage() {
                     Office network verified: <b>{verif.label}</b> ({today?.clientIp})
                   </span>
                 </div>
-              ) : verif?.mode === "WFH" ? (
-                <div className="flex items-center gap-2 text-sm text-teal-800 font-medium">
-                  <span className="flex h-2.5 w-2.5 rounded-full bg-teal-500 animate-pulse" />
-                  <House className="h-4 w-4 text-teal-600" />
-                  <span>
-                    Approved Work From Home today ({today?.clientIp}) · Network restriction bypassed
-                  </span>
+              ) : verif?.wfhStatus === "Approved" ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-emerald-800 font-medium">
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <House className="h-4 w-4 text-emerald-600" />
+                    <span>
+                      Work From Home <b>Approved by HR</b> for today ({today?.clientIp})
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-700">
+                    Network restriction lifted. You are authorized to check in from home.
+                  </p>
+                </div>
+              ) : verif?.wfhStatus === "Pending" ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-amber-800 font-medium">
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+                    <Clock className="h-4 w-4 text-amber-600" />
+                    <span>
+                      WFH request is <b>Pending HR Approval</b> ({today?.clientIp})
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-700">
+                    Your request to work from home today has been submitted to HR. Check-in will unlock once HR approves.
+                  </p>
+                </div>
+              ) : verif?.wfhStatus === "Rejected" ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-rose-800 font-medium">
+                    <span className="flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+                    <XCircle className="h-4 w-4 text-rose-600" />
+                    <span>
+                      WFH request was <b>Rejected by HR</b>
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-700">
+                    Check-in is only permitted when connected to an authorized office WiFi network.
+                  </p>
                 </div>
               ) : verif?.isEnforced === false ? (
                 <div className="flex items-center gap-2 text-sm text-slate-700">
@@ -186,25 +251,59 @@ export default function EmployeeHomePage() {
                     </span>
                   </div>
                   <p className="text-xs text-rose-600">
-                    Attendance is locked to company WiFi. Please connect to office network or request WFH.
+                    Attendance is locked to company WiFi. If you are working from home today, submit a WFH request for HR approval.
                   </p>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex flex-col items-stretch gap-2.5 sm:items-end">
             {!today?.checkedIn ? (
-              <button
-                disabled={clocking || !isNetworkAllowed}
-                onClick={() => handleAttendance("check_in")}
-                className={`btn px-8 py-3 text-base flex items-center justify-center gap-2 ${
-                  !isNetworkAllowed ? "opacity-50 cursor-not-allowed bg-slate-300 border-slate-300" : ""
-                }`}
-              >
-                {clocking ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogIn className="h-5 w-5" />}
-                Check in
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {verif?.wfhStatus !== "Approved" && verif?.wfhStatus !== "Pending" && !isNetworkAllowed && (
+                  <button
+                    type="button"
+                    onClick={() => setWfhModalOpen(true)}
+                    className="btn-ghost px-4 py-2.5 text-sm border-pine text-pine hover:bg-pine-soft flex items-center gap-1.5 font-medium rounded-lg"
+                  >
+                    <House className="h-4 w-4" />
+                    Request WFH for Today
+                  </button>
+                )}
+
+                <button
+                  disabled={clocking || !isNetworkAllowed}
+                  onClick={() => handleAttendance("check_in")}
+                  className={`btn px-7 py-3 text-base flex items-center justify-center gap-2 ${
+                    !isNetworkAllowed
+                      ? verif?.wfhStatus === "Pending"
+                        ? "opacity-75 cursor-not-allowed bg-amber-600 border-amber-600 text-white"
+                        : "opacity-50 cursor-not-allowed bg-slate-300 border-slate-300 text-slate-600"
+                      : ""
+                  }`}
+                  title={
+                    verif?.wfhStatus === "Pending"
+                      ? "Awaiting HR WFH approval"
+                      : !isNetworkAllowed
+                      ? "Connect to office WiFi or get WFH approved by HR"
+                      : "Click to check in"
+                  }
+                >
+                  {clocking ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : verif?.wfhStatus === "Pending" ? (
+                    <Clock className="h-5 w-5 animate-pulse" />
+                  ) : (
+                    <LogIn className="h-5 w-5" />
+                  )}
+                  {verif?.wfhStatus === "Pending"
+                    ? "Awaiting HR Approval"
+                    : verif?.wfhStatus === "Approved"
+                    ? "Check in (WFH)"
+                    : "Check in"}
+                </button>
+              </div>
             ) : !today?.checkedOut ? (
               <div className="flex flex-col items-end gap-2">
                 <span className="text-xs text-mute flex items-center gap-1">
@@ -226,9 +325,9 @@ export default function EmployeeHomePage() {
               </div>
             )}
             <p className="text-sm text-mute">
-              Not at the office?{" "}
+              Need leave or WFH for other dates?{" "}
               <Link href="/employee/leave" className="text-pine underline font-medium">
-                Request WFH
+                Manage leave & WFH
               </Link>
             </p>
           </div>
@@ -287,6 +386,46 @@ export default function EmployeeHomePage() {
           )}
         </ul>
       </Card>
+
+      {/* Quick Request WFH Modal */}
+      <Modal
+        open={wfhModalOpen}
+        onClose={() => setWfhModalOpen(false)}
+        title="Request Work From Home (Today)"
+        desc="Submit your request to HR. Once HR approves, your check-in will be unlocked."
+        footer={
+          <>
+            <Btn variant="outline" onClick={() => setWfhModalOpen(false)}>
+              Cancel
+            </Btn>
+            <Btn
+              type="submit"
+              form="quick-wfh-form"
+              disabled={submittingWfh}
+              icon={submittingWfh ? Loader2 : House}
+            >
+              {submittingWfh ? "Submitting..." : "Send Request to HR"}
+            </Btn>
+          </>
+        }
+      >
+        <form id="quick-wfh-form" onSubmit={handleQuickWfhRequest} className="space-y-4">
+          <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 flex items-center justify-between">
+            <span>Date: <b>Today ({new Date().toISOString().split("T")[0]})</b></span>
+            <span>Your Network IP: <b>{today?.clientIp || "Detected"}</b></span>
+          </div>
+
+          <Field label="Reason for working from home" hint="HR will review this reason to approve your request.">
+            <textarea
+              className={`${inputCls} min-h-[90px] resize-none`}
+              required
+              placeholder="e.g. Health issue, urgent domestic commitment, or remote assignment"
+              value={wfhReason}
+              onChange={(e) => setWfhReason(e.target.value)}
+            />
+          </Field>
+        </form>
+      </Modal>
     </>
   );
 }

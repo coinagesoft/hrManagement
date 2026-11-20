@@ -139,10 +139,20 @@ export async function POST(req: Request) {
       const verification = await verifyOfficeNetwork(companyId, userId, clientIp);
 
       if (!verification.allowed) {
+        let blockError = `Check-in blocked: You are connected from IP ${clientIp}, which is not an authorized company WiFi network. Connect to office WiFi or submit a Work From Home request.`;
+
+        if (verification.wfhStatus === 'Pending') {
+          blockError = 'Check-in blocked: Your Work From Home request for today is currently Pending HR approval. Once approved by HR, you will be able to check in.';
+        } else if (verification.wfhStatus === 'Rejected') {
+          blockError = 'Check-in blocked: Your Work From Home request for today was Rejected by HR. Check-in is only permitted when connected to the authorized office WiFi network.';
+        } else if (verification.wfhStatus === 'None') {
+          blockError = `Check-in blocked: You are connected from IP ${clientIp}, which is not an authorized office WiFi. If you are working from home today, please submit a Work From Home request and wait for HR approval.`;
+        }
+
         return NextResponse.json({
           success: false,
           blocked: true,
-          error: `Check-in blocked: You are connected from IP ${clientIp}, which is not an authorized company WiFi network. Connect to office WiFi or submit a Work From Home request.`,
+          error: blockError,
           clientIp,
           verification,
         }, { status: 403 });
@@ -151,18 +161,21 @@ export async function POST(req: Request) {
       const assignedMode = verification.mode === 'WFH' ? 'WFH' : 'Office';
 
       await query(`
-        INSERT INTO attendance (company_id, user_id, date, check_in, mode, status, ip_address)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO attendance (company_id, user_id, date, check_in, mode, status, ip_address, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           check_in = COALESCE(check_in, VALUES(check_in)),
           mode = VALUES(mode),
           ip_address = VALUES(ip_address),
+          notes = VALUES(notes),
           status = IF(status = 'Present' OR status = 'Late', status, VALUES(status))
-      `, [companyId, userId, todayStr, timeStr, assignedMode, initialStatus, clientIp]);
+      `, [companyId, userId, todayStr, timeStr, assignedMode, initialStatus, clientIp, assignedMode === 'WFH' ? 'Approved WFH' : 'Office WiFi']);
+
+      const modeLabel = assignedMode === 'WFH' ? 'WFH (HR Approved)' : 'Office';
 
       return NextResponse.json({
         success: true,
-        message: `Checked in at ${timeStr.slice(0, 5)} (${assignedMode})${isLate ? ' · Late Mark' : ''}`,
+        message: `Checked in at ${timeStr.slice(0, 5)} (${modeLabel})${isLate ? ' · Late Mark' : ''}`,
         checkInTime: timeStr.slice(0, 5),
         mode: assignedMode,
         status: initialStatus,

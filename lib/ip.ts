@@ -37,6 +37,8 @@ export interface NetworkVerificationResult {
   mode: 'Office' | 'WFH' | 'Blocked';
   isEnforced: boolean;
   isWfhApproved: boolean;
+  wfhStatus: 'Approved' | 'Pending' | 'Rejected' | 'None';
+  wfhReason?: string | null;
   clientIp: string;
   reason: string;
   label: string;
@@ -74,6 +76,7 @@ export async function verifyOfficeNetwork(
       mode: 'Office',
       isEnforced: false,
       isWfhApproved: false,
+      wfhStatus: 'None',
       clientIp,
       reason: 'Office network check is disabled by company policy.',
       label: 'Network check disabled',
@@ -98,6 +101,7 @@ export async function verifyOfficeNetwork(
       mode: 'Office',
       isEnforced: true,
       isWfhApproved: false,
+      wfhStatus: 'None',
       clientIp,
       reason: `Connected to verified office network: ${matched.label} (${matched.ip})`,
       label: matched.label,
@@ -106,36 +110,75 @@ export async function verifyOfficeNetwork(
     };
   }
 
-  // Check if employee has an approved WFH request for today
+  // Check if employee has a WFH request for today (Approved, Pending, or Rejected)
   const todayStr = new Date().toISOString().split('T')[0];
-  const [wfh] = await query<any[]>(`
-    SELECT id, reason
+  const wfhRows = await query<any[]>(`
+    SELECT id, reason, status
     FROM wfh_requests
-    WHERE company_id = ? AND user_id = ? AND date = ? AND status = 'Approved'
+    WHERE company_id = ? AND user_id = ? AND date = ?
+    ORDER BY id DESC
     LIMIT 1
   `, [companyId, userId, todayStr]);
 
-  if (wfh) {
+  const wfh = wfhRows[0];
+
+  // Case 1: WFH is Approved by HR -> Allowed to check in from home!
+  if (wfh && wfh.status === 'Approved') {
     return {
       allowed: true,
       mode: 'WFH',
       isEnforced: true,
       isWfhApproved: true,
+      wfhStatus: 'Approved',
+      wfhReason: wfh.reason,
       clientIp,
-      reason: 'Approved Work From Home today. Network restriction bypassed.',
+      reason: 'Work From Home is approved by HR for today. You can check in.',
       label: 'Approved WFH',
       allowedNetworks: activeNets,
     };
   }
 
-  // Blocked
+  // Case 2: WFH is Pending HR approval -> Blocked until HR approves!
+  if (wfh && wfh.status === 'Pending') {
+    return {
+      allowed: false,
+      mode: 'Blocked',
+      isEnforced: true,
+      isWfhApproved: false,
+      wfhStatus: 'Pending',
+      wfhReason: wfh.reason,
+      clientIp,
+      reason: 'Your Work From Home request for today is currently Pending HR approval. Once approved by HR, check-in will be unlocked.',
+      label: 'WFH Pending HR Approval',
+      allowedNetworks: activeNets,
+    };
+  }
+
+  // Case 3: WFH was Rejected by HR -> Blocked!
+  if (wfh && wfh.status === 'Rejected') {
+    return {
+      allowed: false,
+      mode: 'Blocked',
+      isEnforced: true,
+      isWfhApproved: false,
+      wfhStatus: 'Rejected',
+      wfhReason: wfh.reason,
+      clientIp,
+      reason: 'Your Work From Home request for today was Rejected by HR. Check-in is only permitted from the office WiFi network.',
+      label: 'WFH Rejected by HR',
+      allowedNetworks: activeNets,
+    };
+  }
+
+  // Case 4: No WFH request submitted and not on office WiFi -> Blocked!
   return {
     allowed: false,
     mode: 'Blocked',
     isEnforced: true,
     isWfhApproved: false,
+    wfhStatus: 'None',
     clientIp,
-    reason: `Your network IP (${clientIp}) is not an authorized office WiFi and no approved WFH was found for today.`,
+    reason: `Your network IP (${clientIp}) is not an authorized office WiFi and no approved WFH was found for today. Submit a WFH request and wait for HR approval.`,
     label: 'Unverified Network',
     allowedNetworks: activeNets,
   };
