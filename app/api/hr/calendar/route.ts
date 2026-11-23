@@ -1,6 +1,7 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { calculateSandwichBlocks, checkLeaveSandwichConflict } from '@/lib/sandwich';
 
 export async function GET(req: Request) {
   await connection();
@@ -21,13 +22,13 @@ export async function GET(req: Request) {
     const lastDay = new Date(year, month, 0).getDate();
     const endMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
-    // 1. Fetch holidays
+    // 1. Fetch holidays (including adjacent months around year-end boundaries)
     const holidays = await query<any[]>(`
-      SELECT id, name, date, kind
+      SELECT id, name, DATE_FORMAT(date, '%Y-%m-%d') AS date, kind
       FROM holidays
-      WHERE company_id = ? AND date >= ? AND date <= ?
+      WHERE (company_id = ? OR company_id IS NULL) AND date >= ? AND date <= ?
       ORDER BY date ASC
-    `, [companyId, `${year}-01-01`, `${year}-12-31`]);
+    `, [companyId, `${year - 1}-11-01`, `${year + 1}-02-28`]);
 
     // 2. Fetch leaves for this month
     const leaves = await query<any[]>(`
@@ -126,11 +127,27 @@ export async function GET(req: Request) {
     // Format dates cleanly
     const fmt = (d: any) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0]);
 
+    const formattedHolidays = holidays.map((h) => ({
+      id: h.id,
+      name: h.name,
+      date: fmt(h.date),
+      kind: h.kind,
+    }));
+
+    // Calculate sandwich blocks and date-level metadata
+    const { blocks: sandwichBlocks, dateMap: sandwichDateMap } = calculateSandwichBlocks(formattedHolidays, year);
+    const sandwichDatesObj: Record<string, any> = {};
+    for (const [k, v] of sandwichDateMap.entries()) {
+      sandwichDatesObj[k] = v;
+    }
+
     return NextResponse.json({
       success: true,
       year,
       month,
-      holidays: holidays.map((h) => ({ id: h.id, name: h.name, date: fmt(h.date), kind: h.kind })),
+      holidays: formattedHolidays,
+      sandwichBlocks,
+      sandwichDates: sandwichDatesObj,
       attendanceStats: attendanceStats.map((s) => ({
         date: fmt(s.date),
         present: Number(s.present_count || 0),
@@ -159,18 +176,24 @@ export async function GET(req: Request) {
         status: w.status,
       })),
       pendingApprovals: [
-        ...pendingLeaves.map((l) => ({
-          id: `leave-${l.id}`,
-          rawId: l.id,
-          kind: 'Leave',
-          who: l.who,
-          code: l.employee_code,
-          dept: l.dept,
-          type: l.type,
-          dates: `${fmt(l.start_date)} - ${fmt(l.end_date)}`,
-          days: Number(l.days),
-          reason: l.reason,
-        })),
+        ...pendingLeaves.map((l) => {
+          const lFrom = fmt(l.start_date);
+          const lTo = fmt(l.end_date);
+          const sandwichConflict = checkLeaveSandwichConflict(lFrom, lTo, sandwichDateMap);
+          return {
+            id: `leave-${l.id}`,
+            rawId: l.id,
+            kind: 'Leave',
+            who: l.who,
+            code: l.employee_code,
+            dept: l.dept,
+            type: l.type,
+            dates: `${lFrom} - ${lTo}`,
+            days: Number(l.days),
+            reason: l.reason,
+            sandwichConflict: sandwichConflict.hasConflict ? sandwichConflict : null,
+          };
+        }),
         ...pendingWfh.map((w) => ({
           id: `wfh-${w.id}`,
           rawId: w.id,

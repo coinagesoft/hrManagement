@@ -140,7 +140,14 @@ function Mine() {
                     <Td className="font-medium text-slate-900">{w.from}</Td>
                     <Td className="text-slate-600">{w.reason || "Work from home"}</Td>
                     <Td>
-                      <StatusBadge s={w.status} />
+                      <div className="flex flex-col gap-1 items-start">
+                        <StatusBadge s={w.status} />
+                        {w.status === "Rejected" && w.rejectionReason && (
+                          <span className="text-[11px] font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 max-w-[200px]" title={w.rejectionReason}>
+                            Reason: {w.rejectionReason}
+                          </span>
+                        )}
+                      </div>
                     </Td>
                     <Td className="text-right">
                       {w.status === "Pending" && (
@@ -203,6 +210,8 @@ function Team() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"pending" | "history">("pending");
   const [decidingId, setDecidingId] = useState<number | null>(null);
+  const [rejItem, setRejItem] = useState<WfhItem | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const fetchTeamWfh = async () => {
     try {
@@ -232,7 +241,7 @@ function Team() {
     fetchTeamWfh();
   }, []);
 
-  const decide = async (item: WfhItem, action: "Approved" | "Rejected") => {
+  const decide = async (item: WfhItem, action: "Approved" | "Rejected", reasonText?: string) => {
     setDecidingId(item.id);
     try {
       const res = await fetch("/api/admin/approvals", {
@@ -242,12 +251,15 @@ function Team() {
           id: item.id,
           type: "WFH",
           action,
+          reason: reasonText || undefined,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Action failed");
 
       toast(`WFH ${action.toLowerCase()} for ${item.who}`);
+      setRejItem(null);
+      setRejectReason("");
       await fetchTeamWfh();
     } catch (err: any) {
       toast(err.message || "Action failed");
@@ -322,7 +334,10 @@ function Team() {
                           variant="outline"
                           icon={X}
                           disabled={decidingId === w.id}
-                          onClick={() => decide(w, "Rejected")}
+                          onClick={() => {
+                            setRejItem(w);
+                            setRejectReason("");
+                          }}
                         >
                           Reject
                         </Btn>
@@ -346,6 +361,41 @@ function Team() {
           </Table>
         )}
       </Card>
+
+      {/* Reject Modal */}
+      <Modal
+        open={!!rejItem}
+        onClose={() => setRejItem(null)}
+        title="Reject Work From Home Request"
+        desc={rejItem ? `${rejItem.who} · ${rejItem.date}` : undefined}
+        footer={
+          <>
+            <Btn variant="outline" onClick={() => setRejItem(null)}>
+              Cancel
+            </Btn>
+            <Btn
+              variant="danger"
+              disabled={decidingId !== null || !rejectReason.trim()}
+              onClick={() => rejItem && decide(rejItem, "Rejected", rejectReason.trim())}
+            >
+              {decidingId ? "Rejecting..." : "Confirm Rejection"}
+            </Btn>
+          </>
+        }
+      >
+        <Field
+          label="Reason for rejection (Required)"
+          hint="Please provide the reason why this WFH request cannot be approved."
+        >
+          <textarea
+            className={`${inputCls} min-h-[90px] resize-none`}
+            required
+            placeholder="e.g. In-person client meetings or physical hardware testing required..."
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+          />
+        </Field>
+      </Modal>
     </>
   );
 }

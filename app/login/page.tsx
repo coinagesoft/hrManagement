@@ -34,6 +34,9 @@ export default function Login() {
         throw new Error(data.error || "Failed to sign in.");
       }
 
+      if (typeof window !== "undefined" && data.token) {
+        localStorage.setItem("auth_token", data.token);
+      }
       setSuccess(true);
       setTimeout(() => {
         router.push(data.redirectTo || "/employee");

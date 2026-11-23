@@ -119,6 +119,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
+      token,
+      tokenType: 'Bearer',
+      expiresIn: '7d',
       user: authUser,
       redirectTo: `/${authUser.role}`,
     });

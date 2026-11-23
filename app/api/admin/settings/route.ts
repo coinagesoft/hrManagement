@@ -53,8 +53,9 @@ export async function GET(req: Request) {
         currency: 'INR (₹)',
       },
       schedule: {
-        startTime: settings?.start_time ? String(settings.start_time).slice(0, 5) : '09:30',
-        endTime: settings?.end_time ? String(settings.end_time).slice(0, 5) : '18:30',
+        startTime: settings?.start_time ? String(settings.start_time).slice(0, 5) : '09:00',
+        endTime: settings?.end_time ? String(settings.end_time).slice(0, 5) : '18:00',
+        lateCutoffTime: settings?.late_cutoff_time ? String(settings.late_cutoff_time).slice(0, 5) : '09:15',
         graceMinutes: settings?.grace_minutes ?? 15,
         halfDayHours: settings?.half_day_hours ?? 4,
         workingDays: settings?.working_days ? settings.working_days.split(',').map(Number) : [1, 2, 3, 4, 5],
@@ -85,8 +86,9 @@ export async function PUT(request: Request) {
     }
 
     // Update or insert company_settings
-    const startTime = schedule?.startTime ? `${schedule.startTime}:00` : '09:30:00';
-    const endTime = schedule?.endTime ? `${schedule.endTime}:00` : '18:30:00';
+    const startTime = schedule?.startTime ? `${schedule.startTime}:00` : '09:00:00';
+    const endTime = schedule?.endTime ? `${schedule.endTime}:00` : '18:00:00';
+    const lateCutoff = schedule?.lateCutoffTime ? `${schedule.lateCutoffTime}:00` : '09:15:00';
     const grace = schedule?.graceMinutes ?? 15;
     const halfDay = schedule?.halfDayHours ?? 4;
     const workingDays = schedule?.workingDays ? schedule.workingDays.join(',') : '1,2,3,4,5';
@@ -98,11 +100,12 @@ export async function PUT(request: Request) {
 
     await query(`
       INSERT INTO company_settings 
-      (company_id, start_time, end_time, grace_minutes, half_day_hours, working_days, wfh_limit_monthly, allow_same_day_wfh, enforce_office_ip, allowed_ips)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (company_id, start_time, end_time, late_cutoff_time, grace_minutes, half_day_hours, working_days, wfh_limit_monthly, allow_same_day_wfh, enforce_office_ip, allowed_ips)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         start_time = VALUES(start_time),
         end_time = VALUES(end_time),
+        late_cutoff_time = VALUES(late_cutoff_time),
         grace_minutes = VALUES(grace_minutes),
         half_day_hours = VALUES(half_day_hours),
         working_days = VALUES(working_days),
@@ -111,7 +114,7 @@ export async function PUT(request: Request) {
         enforce_office_ip = VALUES(enforce_office_ip),
         allowed_ips = VALUES(allowed_ips),
         updated_at = NOW()
-    `, [companyId, startTime, endTime, grace, halfDay, workingDays, wfhLimit, sameDay, enforceIp, allowedIps]);
+    `, [companyId, startTime, endTime, lateCutoff, grace, halfDay, workingDays, wfhLimit, sameDay, enforceIp, allowedIps]);
 
     const userName = session?.name || 'Administrator';
     const clientIp = getClientIp(request);

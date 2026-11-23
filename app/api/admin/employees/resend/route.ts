@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { sendEmployeeInvitationEmail } from '@/lib/email';
+import { getCompanyInvitationAttachments } from '@/lib/invitation-docs';
 
 async function resolveCompanyId(): Promise<number> {
   const session = await getSessionUser();
@@ -63,7 +64,8 @@ export async function POST(request: Request) {
       'http://localhost:3000';
     const inviteLink = `${origin}/accept-invite?token=${inviteToken}`;
 
-    // Dispatch invitation email
+    // Dispatch invitation email with active invitation documents attached
+    const attachments = await getCompanyInvitationAttachments(companyId);
     const mailRes = await sendEmployeeInvitationEmail({
       toEmail: emp.email,
       employeeName: emp.name,
@@ -71,6 +73,7 @@ export async function POST(request: Request) {
       role: emp.role || 'employee',
       department: emp.department,
       inviteLink,
+      attachments,
     });
 
     // Audit log

@@ -71,6 +71,7 @@ function TeamLeaveManagement() {
           id: item.id,
           type: "Leave",
           action,
+          reason: action === "Rejected" ? rejectReason.trim() : undefined,
         }),
       });
       const json = await res.json();
@@ -197,18 +198,19 @@ function TeamLeaveManagement() {
             </Btn>
             <Btn
               variant="danger"
-              disabled={decidingId !== null}
+              disabled={decidingId !== null || !rejectReason.trim()}
               onClick={() => rej && decide(rej, "Rejected")}
             >
-              {decidingId ? "Rejecting..." : "Reject request"}
+              {decidingId ? "Rejecting..." : "Confirm Rejection"}
             </Btn>
           </>
         }
       >
-        <Field label="Note or reason to employee (optional)">
-          <input
-            className={inputCls}
-            placeholder="e.g. Critical release scheduled for that sprint"
+        <Field label="Reason for rejection (Required)" hint="Please state the business or operational reason for declining this request.">
+          <textarea
+            className={`${inputCls} min-h-[90px] resize-none`}
+            required
+            placeholder="e.g. Critical release scheduled for that sprint, or team coverage requirements..."
             value={rejectReason}
             onChange={(e) => setRejectReason(e.target.value)}
           />

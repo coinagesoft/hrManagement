@@ -7,6 +7,13 @@ export interface SendInviteParams {
   inviteLink: string;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  path?: string;
+  content?: string | Buffer;
+  contentType?: string;
+}
+
 export interface SendEmployeeInviteParams {
   toEmail: string;
   employeeName: string;
@@ -14,6 +21,7 @@ export interface SendEmployeeInviteParams {
   role: string;
   department?: string;
   inviteLink: string;
+  attachments?: EmailAttachment[];
 }
 
 export interface SendResetParams {
@@ -197,6 +205,7 @@ export async function sendEmployeeInvitationEmail({
   role,
   department,
   inviteLink,
+  attachments,
 }: SendEmployeeInviteParams): Promise<{ success: boolean; mode: 'smtp' | 'simulated'; error?: string }> {
   const mailer = getTransporter();
   const roleLabel = role.toLowerCase() === 'hr' ? 'HR Manager' : role.toLowerCase() === 'admin' ? 'Administrator' : 'Employee';
@@ -261,6 +270,20 @@ export async function sendEmployeeInvitationEmail({
               <a href="${inviteLink}" class="btn" target="_blank">Activate Account & Set Password</a>
             </div>
 
+            ${attachments && attachments.length > 0 ? `
+              <div style="margin: 24px 0; padding: 16px 20px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+                <h4 style="margin: 0 0 8px; color: #166534; font-size: 14px;">
+                  📎 Attached Onboarding Documents (${attachments.length} attached)
+                </h4>
+                <p style="margin: 0 0 10px; font-size: 13px; color: #15803d;">
+                  Please find the following company documents attached to this email for your review:
+                </p>
+                <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #14532d; line-height: 1.6;">
+                  ${attachments.map(att => `<li><strong>${att.filename}</strong></li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+
             <div class="note">
               <p><strong>Note:</strong> This activation link will expire in <strong>7 days</strong>.</p>
               <p>If the button above does not work, copy and paste this link into your browser:</p>
@@ -282,9 +305,10 @@ export async function sendEmployeeInvitationEmail({
         to: toEmail,
         subject: `Welcome to ${companyName}! Activate your ${roleLabel.toLowerCase()} account`,
         html: htmlContent,
+        attachments: attachments && attachments.length > 0 ? attachments : undefined,
       });
 
-      console.log(`[Email] Employee invitation successfully dispatched to ${toEmail} via Gmail SMTP`);
+      console.log(`[Email] Employee invitation successfully dispatched to ${toEmail} via Gmail SMTP with ${attachments?.length || 0} attachment(s)`);
       return { success: true, mode: 'smtp' };
     } catch (err: any) {
       console.error('[Email] Failed to send employee invitation via SMTP:', err.message);
@@ -292,6 +316,280 @@ export async function sendEmployeeInvitationEmail({
     }
   }
 
-  console.log(`[Email-Simulation] Employee invitation for ${toEmail} (${companyName}): ${inviteLink}`);
+  console.log(`[Email-Simulation] Employee invitation for ${toEmail} (${companyName}) with ${attachments?.length || 0} attachment(s): ${inviteLink}`);
+  return { success: true, mode: 'simulated' };
+}
+
+export interface SendLeaveAutoApprovedEmailParams {
+  toEmail: string;
+  hrName: string;
+  employeeName: string;
+  employeeCode: string;
+  department?: string;
+  leaveType: string;
+  fromDate: string;
+  toDate: string;
+  daysCount: number;
+  reason: string;
+  requestedAt: string;
+  initialCredits: number;
+  deductedCredits: number;
+  remainingCredits: number;
+  companyName: string;
+}
+
+export async function sendLeaveAutoApprovedEmail({
+  toEmail,
+  hrName,
+  employeeName,
+  employeeCode,
+  department,
+  leaveType,
+  fromDate,
+  toDate,
+  daysCount,
+  reason,
+  requestedAt,
+  initialCredits,
+  deductedCredits,
+  remainingCredits,
+  companyName,
+}: SendLeaveAutoApprovedEmailParams): Promise<{ success: boolean; mode: 'smtp' | 'simulated'; error?: string }> {
+  const mailer = getTransporter();
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 20px; color: #172033; }
+          .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+          .header { background: linear-gradient(135deg, #0e6b5c 0%, #15806e 100%); padding: 28px 24px; text-align: center; color: #ffffff; }
+          .header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+          .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.9; }
+          .content { padding: 28px 24px; line-height: 1.6; }
+          .badge { display: inline-block; background-color: #d1fae5; color: #065f46; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 999px; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .notice-box { background-color: #ecfdf5; border-left: 4px solid #10b981; padding: 14px 18px; border-radius: 4px; margin: 18px 0; font-size: 14px; color: #065f46; }
+          .table { width: 100%; margin: 20px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-collapse: collapse; font-size: 13px; }
+          .table td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+          .table td.label { font-weight: 600; color: #64748b; width: 40%; }
+          .table td.val { font-weight: 600; color: #0f172a; }
+          .balance-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin-top: 20px; }
+          .balance-grid { display: flex; justify-content: space-between; text-align: center; margin-top: 10px; }
+          .balance-item { flex: 1; padding: 8px; }
+          .balance-num { font-size: 18px; font-weight: 700; }
+          .footer { background-color: #f8fafc; padding: 16px 24px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>HR Management Portal</h1>
+            <p>${companyName} &middot; Automatic Leave System</p>
+          </div>
+          <div class="content">
+            <span class="badge">Automatic Approval Notice</span>
+            <h2 style="margin: 0 0 10px; font-size: 19px; color: #0f172a;">Leave Request Auto-Approved After 48 Hours</h2>
+            <p style="margin: 0 0 12px; font-size: 14px; color: #475569;">
+              Hello ${hrName || 'HR Team'},
+            </p>
+            <div class="notice-box">
+              <strong>48-Hour Inactivity Rule:</strong> This leave request was submitted <strong>5 or more days in advance</strong> and the employee maintained a sufficient leave credit balance. Because no HR decision was recorded within <strong>48 hours (2 days)</strong> of submission, the system has automatically approved the leave.
+            </div>
+
+            <table class="table">
+              <tr>
+                <td class="label">Employee</td>
+                <td class="val">${employeeName} (${employeeCode})</td>
+              </tr>
+              ${department ? `
+              <tr>
+                <td class="label">Department</td>
+                <td class="val">${department}</td>
+              </tr>
+              ` : ''}
+              <tr>
+                <td class="label">Leave Type</td>
+                <td class="val">${leaveType}</td>
+              </tr>
+              <tr>
+                <td class="label">Leave Period</td>
+                <td class="val">${fromDate} to ${toDate} (${daysCount} day${daysCount > 1 ? 's' : ''})</td>
+              </tr>
+              <tr>
+                <td class="label">Requested On</td>
+                <td class="val">${requestedAt}</td>
+              </tr>
+              <tr>
+                <td class="label">Reason Provided</td>
+                <td class="val">${reason}</td>
+              </tr>
+              <tr>
+                <td class="label">Status</td>
+                <td class="val" style="color: #059669;">Approved Automatically</td>
+              </tr>
+            </table>
+
+            <div class="balance-card">
+              <h4 style="margin: 0; color: #065f46; font-size: 14px;">Leave Balance Summary (${leaveType})</h4>
+              <table style="width: 100%; margin-top: 10px; font-size: 13px; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 6px 0; color: #475569;">Prior Available Credits:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #0f172a;">${initialCredits.toFixed(1)} days</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #dc2626;">Deducted for this Leave:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #dc2626;">-${deductedCredits.toFixed(1)} day${deductedCredits > 1 ? 's' : ''}</td>
+                </tr>
+                <tr style="border-top: 1px solid #bbf7d0;">
+                  <td style="padding: 8px 0 0; font-weight: 700; color: #065f46;">Remaining Available Credits:</td>
+                  <td style="padding: 8px 0 0; text-align: right; font-weight: 800; font-size: 16px; color: #059669;">${remainingCredits.toFixed(1)} days</td>
+                </tr>
+              </table>
+            </div>
+
+            <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
+              You can review all team attendance and approvals anytime in the <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/hr/leaves" style="color: #0e6b5c; text-decoration: underline; font-weight: 600;">HR Approvals Dashboard</a>.
+            </p>
+          </div>
+          <div class="footer">
+            &copy; ${new Date().getFullYear()} ${companyName} &middot; PeopleDesk HR Automated Attendance System
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  if (mailer) {
+    try {
+      await mailer.transporter.sendMail({
+        from: mailer.from,
+        to: toEmail,
+        subject: `[Auto-Approved] ${employeeName}'s ${leaveType} (${daysCount}d) - 48h Auto-Approval`,
+        html: htmlContent,
+      });
+      console.log(`[Email] Auto-approval notification sent to HR (${toEmail}) for employee ${employeeName}`);
+      return { success: true, mode: 'smtp' };
+    } catch (err: any) {
+      console.error('[Email] Failed to send auto-approval email to HR:', err.message);
+      return { success: false, mode: 'smtp', error: err.message };
+    }
+  }
+
+  console.log(`[Email-Simulation] Auto-approval email to ${toEmail} for ${employeeName} (${leaveType})`);
+  return { success: true, mode: 'simulated' };
+}
+
+export interface SendRequestRejectedParams {
+  toEmail: string;
+  employeeName: string;
+  companyName: string;
+  requestType: string;
+  period: string;
+  employeeReason: string;
+  rejectionReason: string;
+  deciderName: string;
+}
+
+export async function sendRequestRejectedEmail({
+  toEmail,
+  employeeName,
+  companyName,
+  requestType,
+  period,
+  employeeReason,
+  rejectionReason,
+  deciderName,
+}: SendRequestRejectedParams): Promise<{ success: boolean; mode: 'smtp' | 'simulated'; error?: string }> {
+  const mailer = getTransporter();
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+          .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; }
+          .header { background: #be123c; color: white; padding: 28px 32px; }
+          .header h1 { margin: 0; font-size: 20px; font-weight: 700; }
+          .header p { margin: 6px 0 0; opacity: 0.9; font-size: 14px; }
+          .content { padding: 32px; }
+          .details-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; }
+          .details-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+          .details-table td.label { color: #64748b; font-weight: 500; width: 35%; }
+          .details-table td.val { color: #0f172a; font-weight: 600; }
+          .reason-box { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .footer { background: #f8fafc; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #f1f5f9; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Request Status: Rejected</h1>
+            <p>${companyName} &middot; PeopleDesk HR Notification</p>
+          </div>
+          <div class="content">
+            <p style="font-size: 15px; margin-top: 0;">Hi <strong>${employeeName}</strong>,</p>
+            <p style="font-size: 14px; line-height: 1.6; color: #475569;">
+              Your <strong>${requestType}</strong> request for <strong>${period}</strong> has been reviewed and was <strong>rejected</strong> by HR (${deciderName}).
+            </p>
+
+            <table class="details-table">
+              <tr>
+                <td class="label">Request Type</td>
+                <td class="val">${requestType}</td>
+              </tr>
+              <tr>
+                <td class="label">Dates Requested</td>
+                <td class="val">${period}</td>
+              </tr>
+              <tr>
+                <td class="label">Your Request Note</td>
+                <td class="val">${employeeReason || '—'}</td>
+              </tr>
+              <tr>
+                <td class="label">Reviewed By</td>
+                <td class="val">${deciderName}</td>
+              </tr>
+            </table>
+
+            <div class="reason-box">
+              <h4 style="margin: 0; color: #9f1239; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Rejection Reason from HR</h4>
+              <p style="margin: 8px 0 0; color: #881337; font-size: 14px; font-weight: 500; line-height: 1.5;">
+                "${rejectionReason}"
+              </p>
+            </div>
+
+            <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
+              You can log into your account anytime to view your updated request history or reach out to HR if you have any questions.
+            </p>
+          </div>
+          <div class="footer">
+            &copy; ${new Date().getFullYear()} ${companyName} &middot; PeopleDesk HR Portal
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  if (mailer && toEmail) {
+    try {
+      await mailer.transporter.sendMail({
+        from: mailer.from,
+        to: toEmail,
+        subject: `[Update] Your ${requestType} request was rejected by HR`,
+        html: htmlContent,
+      });
+      console.log(`[Email] Rejection notification sent to ${toEmail}`);
+      return { success: true, mode: 'smtp' };
+    } catch (err: any) {
+      console.error('[Email] Failed to send rejection email:', err.message);
+      return { success: false, mode: 'smtp', error: err.message };
+    }
+  }
+
+  console.log(`[Email-Simulation] Rejection email to ${toEmail} for ${requestType} (${rejectionReason})`);
   return { success: true, mode: 'simulated' };
 }

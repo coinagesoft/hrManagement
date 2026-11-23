@@ -108,6 +108,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
+      token: sessionToken,
+      tokenType: 'Bearer',
+      expiresIn: '7d',
       user: authUser,
       redirectTo: targetRedirect,
       message: 'Account activated successfully!',

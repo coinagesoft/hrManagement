@@ -88,6 +88,9 @@ function AcceptInviteContent() {
         throw new Error(data.error || "Failed to activate account.");
       }
 
+      if (typeof window !== "undefined" && data.token) {
+        localStorage.setItem("auth_token", data.token);
+      }
       setActivated(true);
       setTimeout(() => {
         router.push(data.redirectTo || (invite?.role ? `/${invite.role}` : "/employee"));

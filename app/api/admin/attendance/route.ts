@@ -1,6 +1,7 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { calculateRecordHours } from '@/lib/hours';
 
 async function resolveCompanyId(): Promise<number> {
   const session = await getSessionUser();
@@ -56,19 +57,29 @@ export async function GET(request: Request) {
         ORDER BY a.date DESC, u.name ASC
       `, [companyId, startMonthStr, endMonthStr]);
 
-      const records = monthRows.map((r) => ({
-        date: new Date(r.date).toISOString().split('T')[0],
-        employeeCode: r.employee_code || '-',
-        name: r.name,
-        dept: r.dept || 'Engineering',
-        title: r.title || 'Team Member',
-        checkIn: r.check_in ? String(r.check_in).slice(0, 5) : '-',
-        checkOut: r.check_out ? String(r.check_out).slice(0, 5) : '-',
-        mode: r.mode || 'Office',
-        status: r.status || 'Present',
-        ip: r.ip || '-',
-        notes: r.notes || '',
-      }));
+      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
+      const records = monthRows.map((r) => {
+        const inStr = r.check_in ? String(r.check_in).slice(0, 5) : '-';
+        const outStr = r.check_out ? String(r.check_out).slice(0, 5) : '-';
+        const dStr = new Date(r.date).toISOString().split('T')[0];
+        const dur = calculateRecordHours(inStr, outStr, dStr, todayStr);
+        return {
+          date: dStr,
+          employeeCode: r.employee_code || '-',
+          name: r.name,
+          dept: r.dept || 'Engineering',
+          title: r.title || 'Team Member',
+          checkIn: inStr,
+          checkOut: outStr,
+          hoursFormatted: dur.formatted,
+          hoursDecimal: dur.hours,
+          mode: r.mode || 'Office',
+          status: r.status || 'Present',
+          ip: r.ip || '-',
+          notes: r.notes || '',
+        };
+      });
 
       return NextResponse.json({
         success: true,
@@ -108,20 +119,29 @@ export async function GET(request: Request) {
       ORDER BY u.name ASC
     `, [date, date, date, companyId]);
 
-    const roster = rows.map((r) => ({
-      userId: r.user_id,
-      code: r.employee_code,
-      name: r.name,
-      dept: r.dept,
-      title: r.title,
-      status: r.status,
-      mode: r.mode,
-      in: r.in ? String(r.in).slice(0, 5) : '-',
-      out: r.out ? String(r.out).slice(0, 5) : '-',
-      ip: r.ip,
-      leaveReason: r.leave_reason || null,
-      leaveType: r.leave_type || null,
-    }));
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
+    const roster = rows.map((r) => {
+      const inStr = r.in ? String(r.in).slice(0, 5) : '-';
+      const outStr = r.out ? String(r.out).slice(0, 5) : '-';
+      const dur = calculateRecordHours(inStr, outStr, date, todayStr);
+      return {
+        userId: r.user_id,
+        code: r.employee_code,
+        name: r.name,
+        dept: r.dept,
+        title: r.title,
+        status: r.status,
+        mode: r.mode,
+        in: inStr,
+        out: outStr,
+        hoursFormatted: dur.formatted,
+        hoursDecimal: dur.hours,
+        ip: r.ip,
+        leaveReason: r.leave_reason || null,
+        leaveType: r.leave_type || null,
+      };
+    });
 
     const counts = {
       total: roster.length,

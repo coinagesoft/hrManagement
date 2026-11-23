@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check } from "lucide-react";
+import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check, Paperclip } from "lucide-react";
 import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DEPARTMENTS } from "@/lib/mock";
@@ -390,6 +390,24 @@ export default function EmployeesPage() {
               >
                 ×
               </button>
+            </div>
+          )}
+          {!modal?.editing && (
+            <div className="sm:col-span-2 rounded-lg border border-teal-200 bg-teal-50/70 p-3 text-xs text-teal-950 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Paperclip className="h-4 w-4 text-teal-700 shrink-0" />
+                <span>
+                  The employee will receive an activation email with active <b>Invitation & Onboarding Documents</b> attached.
+                </span>
+              </div>
+              <a
+                href={`/${role}/documents`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-teal-800 hover:text-teal-950 font-semibold underline shrink-0 ml-2"
+              >
+                Manage Docs &rarr;
+              </a>
             </div>
           )}
           <Field label="Full name">

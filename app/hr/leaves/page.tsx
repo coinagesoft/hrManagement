@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X, Plane, House, Loader2, Search, Filter } from "lucide-react";
+import { Check, X, Plane, House, Loader2, Search, Filter, Layers } from "lucide-react";
 import { Avatar, Badge, Btn, Card, Empty, PageHeader, Stat, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, Tabs, inputCls, useToast } from "@/components/interactive";
 
@@ -17,6 +17,13 @@ interface LeaveItem {
   days: number;
   reason: string;
   status: "Pending" | "Approved" | "Rejected";
+  sandwichConflict?: {
+    hasConflict: boolean;
+    conflictingDates: string[];
+    holidayName: string;
+    blockRange: string;
+    warningMessage: string;
+  } | null;
 }
 
 interface WfhItem {
@@ -43,7 +50,12 @@ export default function HrLeavesPage() {
   const [typeFilter, setTypeFilter] = useState("All");
 
   // Rejection modal
-  const [rejectingItem, setRejectingItem] = useState<{ id: number; type: "Leave" | "WFH"; who: string } | null>(null);
+  const [rejectingItem, setRejectingItem] = useState<{
+    id: number;
+    type: "Leave" | "WFH";
+    who: string;
+    sandwichConflict?: any;
+  } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [actionLoadingId, setActionLoadingId] = useState<number | null>(null);
 
@@ -72,6 +84,11 @@ export default function HrLeavesPage() {
     action: "Approved" | "Rejected",
     whoName?: string
   ) => {
+    if (action === "Rejected" && !rejectReason.trim()) {
+      toast.error("Please provide a reason for rejecting this request.");
+      return;
+    }
+
     setActionLoadingId(id);
     try {
       const res = await fetch("/api/admin/approvals", {
@@ -81,7 +98,7 @@ export default function HrLeavesPage() {
           id,
           type,
           action,
-          reason: rejectReason || undefined,
+          reason: rejectReason.trim() || undefined,
         }),
       });
 
@@ -259,7 +276,20 @@ export default function HrLeavesPage() {
                       </Badge>
                     </Td>
                     <Td className="text-xs text-slate-700">
-                      {l.from === l.to ? l.from : `${l.from} to ${l.to}`}
+                      <div className="space-y-1">
+                        <span className="font-medium text-slate-900 block">
+                          {l.from === l.to ? l.from : `${l.from} to ${l.to}`}
+                        </span>
+                        {l.sandwichConflict && (
+                          <div
+                            className="inline-flex items-center gap-1 rounded bg-amber-100 border border-amber-300 px-2 py-0.5 text-[11px] font-semibold text-amber-950 shadow-2xs"
+                            title={l.sandwichConflict.warningMessage}
+                          >
+                            <Layers className="h-3 w-3 text-amber-800" />
+                            <span>Sandwich Leave ({l.sandwichConflict.holidayName})</span>
+                          </div>
+                        )}
+                      </div>
                     </Td>
                     <Td className="num font-medium text-slate-900">
                       {l.days} day{l.days > 1 ? "s" : ""}
@@ -280,7 +310,14 @@ export default function HrLeavesPage() {
                             variant="outline"
                             icon={X}
                             disabled={actionLoadingId === l.id}
-                            onClick={() => setRejectingItem({ id: l.id, type: "Leave", who: l.who })}
+                            onClick={() =>
+                              setRejectingItem({
+                                id: l.id,
+                                type: "Leave",
+                                who: l.who,
+                                sandwichConflict: l.sandwichConflict,
+                              })
+                            }
                           >
                             Reject
                           </Btn>
@@ -399,7 +436,7 @@ export default function HrLeavesPage() {
             </Btn>
             <Btn
               variant="danger"
-              disabled={actionLoadingId !== null}
+              disabled={actionLoadingId !== null || !rejectReason.trim()}
               onClick={() =>
                 rejectingItem &&
                 handleDecision(rejectingItem.id, rejectingItem.type, "Rejected", rejectingItem.who)
@@ -410,14 +447,40 @@ export default function HrLeavesPage() {
           </>
         }
       >
-        <Field label="Reason for rejection (optional)" hint="The employee will be informed of this reason.">
-          <input
-            className={inputCls}
-            placeholder="e.g. Critical client milestone scheduled on that date"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-          />
-        </Field>
+        <div className="space-y-3">
+          {rejectingItem?.sandwichConflict && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3 text-xs text-amber-950">
+              <div className="flex items-center gap-1.5 font-bold">
+                <Layers className="h-3.5 w-3.5 text-amber-800" />
+                <span>Sandwich Leave Detected</span>
+              </div>
+              <p className="mt-1 text-[11px] text-amber-900 leading-relaxed">
+                {rejectingItem.sandwichConflict.warningMessage}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setRejectReason(
+                    `Leave request declined under company sandwich policy bordering ${rejectingItem.sandwichConflict.holidayName} (${rejectingItem.sandwichConflict.blockRange}). Taking leaves adjacent to holidays and weekends is strictly prohibited.`
+                  )
+                }
+                className="mt-2 inline-flex items-center gap-1 rounded bg-amber-200 hover:bg-amber-300 px-2.5 py-1 text-xs font-semibold text-amber-950 transition cursor-pointer"
+              >
+                Use Sandwich Policy Rejection Reason
+              </button>
+            </div>
+          )}
+
+          <Field label="Reason for rejection (Required)" hint="Please state the business or operational reason for declining this request.">
+            <textarea
+              className={`${inputCls} min-h-[90px] resize-none`}
+              required
+              placeholder="e.g. Critical release scheduled for that day, or team coverage requirements..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </Field>
+        </div>
       </Modal>
     </>
   );

@@ -2,24 +2,20 @@ import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { getClientIp, verifyOfficeNetwork } from '@/lib/ip';
+import { calculateAttendanceHoursSummary, calculateRecordHours } from '@/lib/hours';
 
 export async function GET(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
-    let userId: number = session?.id || 4;
-    let companyId: number = session?.companyId || 1;
-
-    // Fallback demo employee if unauthenticated
+    const session = await getSessionUser(req);
     if (!session?.id || !session?.companyId) {
-      const [defaultEmp] = await query<any[]>(
-        "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
+      return NextResponse.json(
+        { error: 'Unauthorized: Bearer token is missing or invalid', code: 'UNAUTHORIZED' },
+        { status: 401 }
       );
-      if (defaultEmp) {
-        userId = defaultEmp.id;
-        companyId = defaultEmp.company_id;
-      }
     }
+    const userId: number = session.id;
+    const companyId: number = session.companyId;
 
     // 1. Employee Profile
     const [user] = await query<any[]>(`
@@ -34,8 +30,10 @@ export async function GET(req: Request) {
     const clientIp = getClientIp(req);
     const networkVerification = await verifyOfficeNetwork(companyId, userId, clientIp);
 
-    // 3. Today's Attendance
-    const todayStr = new Date().toISOString().split('T')[0];
+    // 3. Today's Attendance in IST
+    const now = new Date();
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+
     const [todayAtt] = await query<any[]>(`
       SELECT check_in, check_out, mode, status, ip_address
       FROM attendance
@@ -46,60 +44,93 @@ export async function GET(req: Request) {
     const checkedIn = Boolean(todayAtt?.check_in);
     const checkedOut = Boolean(todayAtt?.check_out);
 
-    // 4. Current Month Attendance Summary (November 2026)
-    const [monthStats] = await query<any[]>(`
-      SELECT 
-        COUNT(*) AS total_recorded,
-        COALESCE(SUM(CASE WHEN status = 'Present' OR status = 'Late' THEN 1 ELSE 0 END), 0) AS present_count,
-        COALESCE(SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END), 0) AS late_count,
-        COALESCE(SUM(CASE WHEN status = 'On leave' THEN 1 ELSE 0 END), 0) AS leave_count
+    // 4. Current Month Attendance Records for Hours Calculation
+    const currentMonthPrefix = todayStr.slice(0, 7); // e.g. "2026-11"
+    const monthRows = await query<any[]>(`
+      SELECT id, date, check_in, check_out, mode, status
       FROM attendance
-      WHERE company_id = ? AND user_id = ? AND date >= '2026-11-01' AND date <= '2026-11-30'
-    `, [companyId, userId]);
+      WHERE company_id = ? AND user_id = ? AND date >= ? AND date <= ?
+      ORDER BY date DESC
+    `, [companyId, userId, `${currentMonthPrefix}-01`, `${currentMonthPrefix}-31`]);
 
-    // 5. Leave Balances
+    const hoursSummary = calculateAttendanceHoursSummary(
+      monthRows.map((r) => ({
+        date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date).split('T')[0],
+        checkIn: r.check_in ? String(r.check_in).slice(0, 5) : null,
+        checkOut: r.check_out ? String(r.check_out).slice(0, 5) : null,
+        status: r.status,
+      })),
+      todayStr
+    );
+
+    // Month summary counts
+    let presentCount = 0;
+    let lateCount = 0;
+    let leaveCount = 0;
+    monthRows.forEach((r) => {
+      if (r.status === 'Present') presentCount++;
+      else if (r.status === 'Late') lateCount++;
+      else if (r.status === 'On leave') leaveCount++;
+    });
+
+    // 5. Leave Policy & Dynamic Carry Forward Calculation
     const [policy] = await query<any[]>(
       'SELECT * FROM leave_policies WHERE company_id = ? LIMIT 1',
       [companyId]
     );
-    const casualPerMo = Number(policy?.casual_per_month ?? 1.0);
+    const casualPerMo = Number(policy?.casual_per_month ?? 1.5);
     const sickPerMo = Number(policy?.sick_per_month ?? 1.0);
-    const paidPerYr = Number(policy?.paid_per_year ?? 12);
+    const carryForwardEnabled = Boolean(policy?.carry_forward_enabled ?? 1);
 
-    // Credited through November (11 months)
-    const casualCredited = Math.round(casualPerMo * 11 * 10) / 10;
-    const sickCredited = Math.round(sickPerMo * 11 * 10) / 10;
-    const paidCredited = paidPerYr;
+    const currentMonthNum = parseInt(todayStr.slice(5, 7), 10);
+    const currentYearNum = parseInt(todayStr.slice(0, 4), 10);
+    const priorMonthsCount = Math.max(0, currentMonthNum - 1);
 
-    // Used approved leaves
-    const usedLeaves = await query<any[]>(`
-      SELECT leave_type, COALESCE(SUM(days_count), 0) AS used_days
+    // Used approved leaves this year
+    const usedLeavesRows = await query<any[]>(`
+      SELECT leave_type, MONTH(start_date) AS m, COALESCE(SUM(days_count), 0) AS used_days
       FROM leave_requests
-      WHERE company_id = ? AND user_id = ? AND status = 'Approved'
-      GROUP BY leave_type
-    `, [companyId, userId]);
+      WHERE company_id = ? AND user_id = ? AND status = 'Approved' AND YEAR(start_date) = ?
+      GROUP BY leave_type, MONTH(start_date)
+    `, [companyId, userId, currentYearNum]);
 
-    const usedMap: Record<string, number> = { Casual: 0, Sick: 0, Paid: 0 };
-    usedLeaves.forEach((r) => {
-      usedMap[r.leave_type] = Number(r.used_days);
-    });
+    function computeLeave(type: string, rate: number) {
+      const priorUsed = usedLeavesRows
+        .filter((r) => r.leave_type?.toLowerCase() === type.toLowerCase() && r.m < currentMonthNum)
+        .reduce((sum, r) => sum + Number(r.used_days), 0);
+
+      const currentUsed = usedLeavesRows
+        .filter((r) => r.leave_type?.toLowerCase() === type.toLowerCase() && r.m === currentMonthNum)
+        .reduce((sum, r) => sum + Number(r.used_days), 0);
+
+      const totalUsedYtd = priorUsed + currentUsed;
+
+      let carriedForward = 0;
+      if (carryForwardEnabled && priorMonthsCount > 0) {
+        const priorAccrued = Math.round(priorMonthsCount * rate * 10) / 10;
+        carriedForward = Math.max(0, Math.round((priorAccrued - priorUsed) * 10) / 10);
+      }
+
+      const totalAvailable = Math.max(0, Math.round((carriedForward + rate - currentUsed) * 10) / 10);
+      const totalCredited = Math.round((carriedForward + rate + priorUsed) * 10) / 10;
+
+      return {
+        credited: totalCredited,
+        perMonth: rate,
+        carriedForward,
+        currentMonthAccrual: rate,
+        used: totalUsedYtd,
+        left: totalAvailable,
+        carryForwardEnabled,
+        formula: carryForwardEnabled
+          ? `${carriedForward.toFixed(1)} carried + ${rate.toFixed(1)} this mo`
+          : `${rate.toFixed(1)}/mo`,
+      };
+    }
 
     const leaveBalance = {
-      casual: {
-        credited: casualCredited,
-        used: usedMap.Casual || 0,
-        left: Math.max(0, casualCredited - (usedMap.Casual || 0)),
-      },
-      sick: {
-        credited: sickCredited,
-        used: usedMap.Sick || 0,
-        left: Math.max(0, sickCredited - (usedMap.Sick || 0)),
-      },
-      paid: {
-        credited: paidCredited,
-        used: usedMap.Paid || 0,
-        left: Math.max(0, paidCredited - (usedMap.Paid || 0)),
-      },
+      casual: computeLeave('Casual', casualPerMo),
+      sick: computeLeave('Sick', sickPerMo),
     };
 
     // 6. Latest Payslip
@@ -128,8 +159,47 @@ export async function GET(req: Request) {
       LIMIT 4
     `, [companyId, todayStr]);
 
+    // 9. Company Schedule Settings
+    const [settings] = await query<any[]>(
+      'SELECT start_time, end_time, late_cutoff_time, working_days FROM company_settings WHERE company_id = ? LIMIT 1',
+      [companyId]
+    );
+
+    // 10. Recently Rejected Requests (within last 7 days)
+    const recentRejections = await query<any[]>(`
+      (SELECT 'leave' AS kind, leave_type AS type, start_date AS \`from\`, end_date AS \`to\`, days_count AS days, reason, rejection_reason, decided_at
+       FROM leave_requests
+       WHERE company_id = ? AND user_id = ? AND status = 'Rejected' AND decided_at >= DATE_SUB(NOW(), INTERVAL 7 DAY))
+      UNION ALL
+      (SELECT 'wfh' AS kind, 'Work from home' AS type, date AS \`from\`, date AS \`to\`, 1 AS days, reason, rejection_reason, decided_at
+       FROM wfh_requests
+       WHERE company_id = ? AND user_id = ? AND status = 'Rejected' AND decided_at >= DATE_SUB(NOW(), INTERVAL 7 DAY))
+      ORDER BY decided_at DESC
+      LIMIT 3
+    `, [companyId, userId, companyId, userId]);
+
+    // Salary Cycle & Payment Status for November 2026
+    const currentMonthName = 'November 2026';
+    const [empPayrollRun] = await query<any[]>(
+      'SELECT status, paid_on, cycle_date FROM payroll_runs WHERE company_id = ? AND month = ? LIMIT 1',
+      [companyId, currentMonthName]
+    );
+
+    const isEmpSalaryPaid = empPayrollRun?.status === 'Paid';
+    const salaryStatus = {
+      month: currentMonthName,
+      cycleDate: Number(empPayrollRun?.cycle_date || 1),
+      isPaid: isEmpSalaryPaid,
+      paidOn: empPayrollRun?.paid_on ? String(empPayrollRun.paid_on).split('T')[0] : null,
+      pending: !isEmpSalaryPaid,
+      message: !isEmpSalaryPaid
+        ? `Salary payout for ${currentMonthName} is currently pending disbursement by HR/Admin (Salary cycle: 1st of the month).`
+        : `Salary for ${currentMonthName} has been paid on ${empPayrollRun?.paid_on ? String(empPayrollRun.paid_on).split('T')[0] : '1st of the month'}.`,
+    };
+
     return NextResponse.json({
       success: true,
+      salaryStatus,
       user: {
         id: user?.id || userId,
         code: user?.employee_code || 'ACM-014',
@@ -138,6 +208,12 @@ export async function GET(req: Request) {
         dept: user?.department || 'Engineering',
         title: user?.title || 'Senior Engineer',
         companyName: user?.company_name || 'Acme Technologies',
+      },
+      schedule: {
+        startTime: settings?.start_time ? String(settings.start_time).slice(0, 5) : '09:00',
+        endTime: settings?.end_time ? String(settings.end_time).slice(0, 5) : '18:00',
+        lateCutoff: settings?.late_cutoff_time ? String(settings.late_cutoff_time).slice(0, 5) : '09:15',
+        workingDays: settings?.working_days || '1,2,3,4,5',
       },
       today: {
         date: todayStr,
@@ -151,11 +227,12 @@ export async function GET(req: Request) {
         verification: networkVerification,
         officeIp: todayAtt?.ip_address || clientIp,
       },
+      hoursSummary,
       monthSummary: {
-        presentCount: Number(monthStats?.present_count || 0),
-        totalRecorded: Number(monthStats?.total_recorded || 0),
-        lateCount: Number(monthStats?.late_count || 0),
-        leaveCount: Number(monthStats?.leave_count || 0),
+        presentCount,
+        totalRecorded: monthRows.length,
+        lateCount,
+        leaveCount,
       },
       leaveBalance,
       latestPayslip: latestPayslip ? {
@@ -170,6 +247,20 @@ export async function GET(req: Request) {
         date: h.date instanceof Date ? h.date.toISOString().split('T')[0] : String(h.date).split('T')[0],
         kind: h.kind,
       })),
+      recentRejections: recentRejections.map((r) => {
+        const fromStr = r.from instanceof Date ? r.from.toISOString().split('T')[0] : String(r.from).split('T')[0];
+        const toStr = r.to instanceof Date ? r.to.toISOString().split('T')[0] : String(r.to).split('T')[0];
+        const rej = r.rejection_reason || (r.reason?.includes('[Rejection Reason:') ? r.reason.split('[Rejection Reason:')[1]?.replace(/\]$/, '').trim() : null);
+        return {
+          kind: r.kind,
+          type: r.type,
+          period: fromStr === toStr ? fromStr : `${fromStr} to ${toStr}`,
+          days: r.days,
+          reason: r.reason,
+          rejectionReason: rej,
+          decidedAt: r.decided_at,
+        };
+      }),
     });
   } catch (error: any) {
     console.error('Employee dashboard GET error:', error);

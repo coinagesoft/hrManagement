@@ -21,10 +21,10 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       policy: {
-        casual: Number(policy?.casual_per_month ?? 1.0),
+        casual: Number(policy?.casual_per_month ?? 1.5),
         sick: Number(policy?.sick_per_month ?? 1.0),
-        paid: Number(policy?.paid_per_year ?? 12),
         workingDays: Number(policy?.working_days_per_month ?? 22),
+        carryForwardEnabled: Boolean(policy?.carry_forward_enabled ?? 1),
       },
     });
   } catch (error: any) {
@@ -45,33 +45,43 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json();
-    const casual = Math.max(0, Math.min(5, Number(body.casual ?? 1.0)));
-    const sick = Math.max(0, Math.min(5, Number(body.sick ?? 1.0)));
-    const paid = Math.max(0, Math.min(30, Number(body.paid ?? 12)));
+    const casual = Math.max(0, Math.min(10, Number(body.casual ?? 1.5)));
+    const sick = Math.max(0, Math.min(10, Number(body.sick ?? 1.0)));
+    const paid = 0; // Only SL and CL supported
     const workingDays = Math.max(15, Math.min(31, Number(body.workingDays ?? 22)));
+    const carryForward = body.carryForwardEnabled !== false ? 1 : 0;
+    const maxCarry = 9999; // Unlimited carry forward
 
     await query(`
-      INSERT INTO leave_policies (company_id, casual_per_month, sick_per_month, paid_per_year, working_days_per_month)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO leave_policies 
+        (company_id, casual_per_month, sick_per_month, paid_per_year, working_days_per_month, carry_forward_enabled, max_carry_forward)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         casual_per_month = VALUES(casual_per_month),
         sick_per_month = VALUES(sick_per_month),
         paid_per_year = VALUES(paid_per_year),
         working_days_per_month = VALUES(working_days_per_month),
+        carry_forward_enabled = VALUES(carry_forward_enabled),
+        max_carry_forward = VALUES(max_carry_forward),
         updated_at = NOW()
-    `, [companyId, casual, sick, paid, workingDays]);
+    `, [companyId, casual, sick, paid, workingDays, carryForward, maxCarry]);
 
-    const userName = session?.name || 'HR Manager';
+    const userName = session?.name || 'Administrator';
     await query(
       `INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
        VALUES (?, ?, ?, 'Leave policy updated', 'blue', ?, NOW())`,
-      [companyId, session?.id || null, userName, `Updated leave policy: Casual ${casual}/mo, Sick ${sick}/mo, Paid ${paid}/yr, Working days ${workingDays}`]
+      [companyId, session?.id || null, userName, `Updated leave policy: CL ${casual}/mo, SL ${sick}/mo, Carry Forward: ${carryForward ? 'Enabled (Unlimited)' : 'Disabled'}`]
     );
 
     return NextResponse.json({
       success: true,
       message: 'Leave policy updated successfully',
-      policy: { casual, sick, paid, workingDays },
+      policy: {
+        casual,
+        sick,
+        workingDays,
+        carryForwardEnabled: Boolean(carryForward),
+      },
     });
   } catch (error: any) {
     console.error('Leave policy PUT error:', error);

@@ -13,11 +13,17 @@ import {
   Search,
   Users,
   Wifi,
+  Layers,
 } from "lucide-react";
 import { Avatar, Badge, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DAYS_SHORT, MONTHS, pad } from "@/lib/dates";
 import { cn } from "@/lib/cn";
+import {
+  calculateSandwichBlocks,
+  type SandwichDateInfo,
+  type SandwichBlock,
+} from "@/lib/sandwich";
 
 interface Holiday {
   id: number;
@@ -62,6 +68,8 @@ interface TeamRow {
   mode: string;
   in: string;
   out: string;
+  hoursFormatted?: string;
+  hoursDecimal?: number;
   ip: string;
   leaveReason?: string | null;
   leaveType?: string | null;
@@ -91,6 +99,8 @@ export default function AttendanceCalendarView() {
   const [exporting, setExporting] = useState(false);
 
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [sandwichBlocks, setSandwichBlocks] = useState<SandwichBlock[]>([]);
+  const [sandwichDateMap, setSandwichDateMap] = useState<Map<string, SandwichDateInfo>>(new Map());
   const [monthLeaves, setMonthLeaves] = useState<LeaveMarker[]>([]);
   const [monthWfhs, setMonthWfhs] = useState<WfhMarker[]>([]);
   const [monthStats, setMonthStats] = useState<AttendanceStat[]>([]);
@@ -113,14 +123,21 @@ export default function AttendanceCalendarView() {
     setYm({ y, m: m - 1 });
   }, []);
 
-  // Fetch month calendar events (holidays, leaves, wfh, attendance stats)
+  // Fetch month calendar events (holidays, leaves, wfh, attendance stats, sandwich blocks)
   const fetchMonthEvents = async (year: number, monthIndex: number) => {
     setLoadingCalendar(true);
     try {
       const res = await fetch(`/api/hr/calendar?year=${year}&month=${monthIndex + 1}`);
       const json = await res.json();
       if (json?.success) {
-        setHolidays(json.holidays || []);
+        const hols = json.holidays || [];
+        setHolidays(hols);
+
+        // Calculate sandwich blocks for this year and holiday calendar
+        const { blocks: sBlocks, dateMap: sMap } = calculateSandwichBlocks(hols, year);
+        setSandwichBlocks(sBlocks);
+        setSandwichDateMap(sMap);
+
         setMonthLeaves(
           (json.leaves || []).map((l: any) => ({
             id: l.id,
@@ -268,6 +285,7 @@ export default function AttendanceCalendarView() {
     const dayLeaves = monthLeaves.filter((l) => l.status === "Approved" && dateStr >= l.from && dateStr <= l.to);
     const dayWfhs = monthWfhs.filter((w) => w.status === "Approved" && w.date === dateStr);
     const dayStat = monthStats.find((s) => s.date === dateStr);
+    const sandwich = sandwichDateMap.get(dateStr);
     return {
       dateStr,
       hasHoliday: dayHolidays.length > 0,
@@ -277,6 +295,7 @@ export default function AttendanceCalendarView() {
       hasWfh: dayWfhs.length > 0,
       wfhs: dayWfhs,
       stat: dayStat,
+      sandwich,
     };
   };
 
@@ -427,28 +446,59 @@ export default function AttendanceCalendarView() {
 
                 {Array.from({ length: totalDaysInMonth }).map((_, i) => {
                   const dayNum = i + 1;
-                  const { dateStr, hasHoliday, hasLeave } = getDayMeta(dayNum);
+                  const { dateStr, hasHoliday, hasLeave, holidays: dayHols, sandwich } = getDayMeta(dayNum);
                   const isSelected = selectedDate === dateStr;
+                  const isSandwich = Boolean(sandwich?.isSandwich);
+                  const isSandwichWorkday = sandwich?.role === "sandwich_workday";
+                  const isSandwichWeekendOrHol = isSandwich && !isSandwichWorkday;
+
+                  let cellClass = "text-slate-700 hover:bg-slate-100";
+                  if (isSelected) {
+                    cellClass = isSandwichWorkday
+                      ? "bg-amber-600 text-white font-bold ring-2 ring-amber-400 shadow-xs"
+                      : "bg-pine text-white font-bold shadow-xs";
+                  } else if (isSandwichWorkday) {
+                    cellClass = "bg-amber-100/90 text-amber-950 font-bold border-2 border-dashed border-amber-400 hover:bg-amber-200 shadow-2xs";
+                  } else if (isSandwichWeekendOrHol) {
+                    cellClass = "bg-amber-50/70 text-amber-900 border border-amber-200/80 hover:bg-amber-100/70";
+                  }
 
                   return (
                     <button
                       key={dateStr}
                       type="button"
                       onClick={() => setSelectedDate(dateStr)}
+                      title={
+                        sandwich?.reason ||
+                        (hasHoliday ? dayHols.map((h) => h.name).join(", ") : undefined)
+                      }
                       className={cn(
                         "h-9 w-full rounded-lg text-xs font-medium relative flex flex-col items-center justify-center transition cursor-pointer",
-                        isSelected
-                          ? "bg-pine text-white font-bold shadow-xs"
-                          : "text-slate-700 hover:bg-slate-100"
+                        cellClass
                       )}
                     >
-                      <span>{dayNum}</span>
+                      <span className="flex items-center gap-0.5 leading-none">
+                        {dayNum}
+                        {isSandwichWorkday && !isSelected && (
+                          <span title="Sandwich Day: Policy says no leave">
+                            <Layers className="h-2.5 w-2.5 text-amber-700 shrink-0" />
+                          </span>
+                        )}
+                      </span>
                       <div className="flex items-center gap-0.5 mt-0.5">
                         {hasHoliday && (
                           <span
                             className={cn(
-                              "h-1 w-1 rounded-full",
+                              "h-1.5 w-1.5 rounded-full",
                               isSelected ? "bg-white" : "bg-purple-600"
+                            )}
+                          />
+                        )}
+                        {isSandwichWorkday && (
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              isSelected ? "bg-white" : "bg-amber-600 animate-pulse"
                             )}
                           />
                         )}
@@ -467,7 +517,7 @@ export default function AttendanceCalendarView() {
               </div>
 
               {/* Legend */}
-              <div className="flex items-center justify-center gap-4 mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
+              <div className="flex flex-wrap items-center justify-center gap-3 mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-pine" /> Selected
                 </span>
@@ -477,6 +527,9 @@ export default function AttendanceCalendarView() {
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-blue-500" /> Approved Leave
                 </span>
+                <span className="flex items-center gap-1 font-semibold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shadow-2xs">
+                  <Layers className="h-3 w-3 text-amber-700" /> Sandwich Block
+                </span>
               </div>
             </Card>
 
@@ -485,21 +538,27 @@ export default function AttendanceCalendarView() {
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-2">
                 Holidays in {MONTHS[ym.m]}
               </span>
-              {holidays.length === 0 ? (
-                <p className="text-xs text-mute py-1">No company holidays scheduled this month.</p>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {holidays.map((h) => (
-                    <li key={h.id} className="py-2 flex items-center justify-between text-xs">
-                      <div>
-                        <b className="font-semibold text-slate-800">{h.name}</b>
-                        <span className="block text-[11px] text-mute">{h.kind} Holiday</span>
-                      </div>
-                      <Badge tone="indigo">{h.date}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {(() => {
+                const currentMonthHolidays = holidays.filter((h) =>
+                  h.date.startsWith(`${ym.y}-${pad(ym.m + 1)}`)
+                );
+                if (currentMonthHolidays.length === 0) {
+                  return <p className="text-xs text-mute py-1">No company holidays scheduled this month.</p>;
+                }
+                return (
+                  <ul className="divide-y divide-slate-100">
+                    {currentMonthHolidays.map((h) => (
+                      <li key={h.id} className="py-2 flex items-center justify-between text-xs">
+                        <div>
+                          <b className="font-semibold text-slate-800">{h.name}</b>
+                          <span className="block text-[11px] text-mute">{h.kind} Holiday</span>
+                        </div>
+                        <Badge tone="indigo">{h.date}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                );
+              })()}
             </Card>
           </div>
 
@@ -579,6 +638,7 @@ export default function AttendanceCalendarView() {
                       <Th>Employee</Th>
                       <Th>In</Th>
                       <Th>Out</Th>
+                      <Th>Hours</Th>
                       <Th>Mode</Th>
                       <Th>Status</Th>
                       <Th className="text-right">Action</Th>
@@ -600,6 +660,9 @@ export default function AttendanceCalendarView() {
                         </Td>
                         <Td className="font-mono text-xs">{r.in}</Td>
                         <Td className="font-mono text-xs">{r.out}</Td>
+                        <Td className="font-mono text-xs font-semibold text-slate-700">
+                          {r.hoursFormatted && r.hoursFormatted !== "-" ? r.hoursFormatted : "—"}
+                        </Td>
                         <Td>
                           {r.mode === "-" ? (
                             <span className="text-slate-400 text-xs">—</span>
@@ -704,8 +767,10 @@ export default function AttendanceCalendarView() {
             {/* Days of the month */}
             {Array.from({ length: totalDaysInMonth }).map((_, i) => {
               const dayNum = i + 1;
-              const { dateStr, holidays: dayHols, leaves: dayLvs, wfhs: dayWfhs, stat } = getDayMeta(dayNum);
+              const { dateStr, holidays: dayHols, leaves: dayLvs, wfhs: dayWfhs, stat, sandwich } = getDayMeta(dayNum);
               const isSelected = selectedDate === dateStr;
+              const isSandwich = Boolean(sandwich?.isSandwich);
+              const isSandwichWorkday = sandwich?.role === "sandwich_workday";
 
               return (
                 <div
@@ -715,20 +780,37 @@ export default function AttendanceCalendarView() {
                     setViewMode("split");
                   }}
                   className={cn(
-                    "min-h-28 p-2 flex flex-col justify-between transition cursor-pointer group bg-white",
-                    isSelected ? "ring-2 ring-inset ring-pine bg-pine-soft/20" : "hover:bg-slate-50"
+                    "min-h-28 p-2 flex flex-col justify-between transition cursor-pointer group",
+                    isSelected
+                      ? "ring-2 ring-inset ring-pine bg-pine-soft/20"
+                      : isSandwichWorkday
+                      ? "bg-amber-100/60 border border-dashed border-amber-300 hover:bg-amber-100/90"
+                      : isSandwich
+                      ? "bg-amber-50/50 hover:bg-amber-100/40"
+                      : "bg-white hover:bg-slate-50"
                   )}
                 >
                   {/* Day number header */}
                   <div className="flex items-center justify-between">
-                    <span
-                      className={cn(
-                        "h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
-                        isSelected ? "bg-pine text-white" : "text-slate-800 group-hover:bg-slate-200"
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                          isSelected
+                            ? "bg-pine text-white"
+                            : isSandwichWorkday
+                            ? "bg-amber-600 text-white font-bold"
+                            : "text-slate-800 group-hover:bg-slate-200"
+                        )}
+                      >
+                        {dayNum}
+                      </span>
+                      {isSandwichWorkday && (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-200 border border-amber-300 px-1.5 py-0.2 text-[9px] font-bold text-amber-950">
+                          <Layers className="h-2.5 w-2.5 text-amber-800" /> Sandwich Day
+                        </span>
                       )}
-                    >
-                      {dayNum}
-                    </span>
+                    </div>
 
                     {/* Compact Attendance count pill */}
                     {stat && stat.present > 0 && (
@@ -740,6 +822,16 @@ export default function AttendanceCalendarView() {
 
                   {/* Day event tags list */}
                   <div className="space-y-1 mt-1.5 flex-1">
+                    {/* Sandwich Day Notice Tag */}
+                    {isSandwichWorkday && (
+                      <div
+                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200/80 border border-amber-300 text-amber-950 truncate"
+                        title="Sandwich Day: Policy advises rejecting leaves"
+                      >
+                        ⛔ Policy: No Leave
+                      </div>
+                    )}
+
                     {/* Holidays */}
                     {dayHols.map((h) => (
                       <div
@@ -747,7 +839,7 @@ export default function AttendanceCalendarView() {
                         className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-900 truncate"
                         title={`${h.name} (${h.kind} Holiday)`}
                       >
-                        🎉 {h.name}
+                        🎉 {h.name} {isSandwich && <span className="inline-flex items-center text-amber-800 font-bold ml-1" title="Part of sandwich period"><Layers className="h-2.5 w-2.5" /></span>}
                       </div>
                     ))}
 

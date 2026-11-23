@@ -13,6 +13,9 @@ interface AttendanceRecord {
   checkOut: string;
   mode: string;
   status: string;
+  hoursDecimal?: number;
+  hoursFormatted?: string;
+  isActive?: boolean;
 }
 
 export default function AttendancePage() {
@@ -23,6 +26,22 @@ export default function AttendancePage() {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [clientIp, setClientIp] = useState("127.0.0.1");
   const [verification, setVerification] = useState<any>(null);
+  const [hours, setHours] = useState<{
+    todayHours: number;
+    todayFormatted: string;
+    weekHours: number;
+    weekFormatted: string;
+    monthHours: number;
+    monthFormatted: string;
+    avgDailyHours: number;
+    presentCount: number;
+  } | null>(null);
+  const [schedule, setSchedule] = useState<{
+    startTime: string;
+    endTime: string;
+    lateCutoff: string;
+    workingDays: string;
+  } | null>(null);
   const [summary, setSummary] = useState({
     present: 0,
     late: 0,
@@ -42,6 +61,8 @@ export default function AttendancePage() {
       if (json?.success) {
         setRecords(json.records);
         setSummary(json.summary);
+        if (json.hours) setHours(json.hours);
+        if (json.schedule) setSchedule(json.schedule);
         if (json.clientIp) setClientIp(json.clientIp);
         if (json.verification) setVerification(json.verification);
       }
@@ -155,10 +176,18 @@ export default function AttendancePage() {
               <span>WFH request is <b>Pending HR Approval</b> ({clientIp})</span>
             </div>
           ) : verification?.wfhStatus === "Rejected" ? (
-            <div className="mt-1 flex items-center gap-2 text-sm text-rose-800 font-medium">
-              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
-              <XCircle className="h-4 w-4 text-rose-600" />
-              <span>WFH request was <b>Rejected by HR</b> · Office WiFi required</span>
+            <div className="mt-1 space-y-1">
+              <div className="flex items-center gap-2 text-sm text-rose-800 font-medium">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+                <XCircle className="h-4 w-4 text-rose-600" />
+                <span>WFH request was <b>Rejected by HR</b> · Office WiFi required</span>
+              </div>
+              {verification?.rejectionReason && (
+                <div className="rounded-md bg-rose-50 border border-rose-200 px-2.5 py-1 text-xs text-rose-900">
+                  <span className="font-semibold text-rose-950">Reason: </span>
+                  <span>{verification.rejectionReason}</span>
+                </div>
+              )}
             </div>
           ) : verification?.isEnforced === false ? (
             <div className="mt-1 flex items-center gap-2 text-sm text-slate-700">
@@ -229,11 +258,45 @@ export default function AttendancePage() {
         </div>
       </section>
 
+      {/* Shift & Late Mark Rule Bar */}
+      <div className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-slate-600" />
+          <span className="font-semibold text-slate-900">Office Schedule:</span>
+          <span>{schedule?.startTime || "09:00"} – {schedule?.endTime || "18:00"} (Mon–Fri)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+            Late Cutoff: {schedule?.lateCutoff || "09:15"} AM
+          </span>
+          <span className="text-slate-600">
+            Check-ins after {schedule?.lateCutoff || "09:15"} AM are automatically marked <b>Late</b>.
+          </span>
+        </div>
+      </div>
+
+      {/* Calculated Hours Worked Metrics */}
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="Present" value={summary.present} />
-        <Stat label="Late" value={summary.late} />
-        <Stat label="Half-days" value={summary.halfDays} />
-        <Stat label="On leave" value={summary.onLeave} />
+        <Stat
+          label="Today's hours"
+          value={hours?.todayFormatted || "0h 00m"}
+          note={isCheckedIn && !isCheckedOut ? "Clock running active" : "Today's work time"}
+        />
+        <Stat
+          label="This week's hours"
+          value={hours?.weekFormatted || "0h 00m"}
+          note="Standard 40h target"
+        />
+        <Stat
+          label="This month's hours"
+          value={hours?.monthFormatted || "0h 00m"}
+          note={`${summary.present} days logged`}
+        />
+        <Stat
+          label="Late marks"
+          value={`${summary.late}`}
+          note={summary.late > 0 ? `After ${schedule?.lateCutoff || "09:15"}` : "No late marks"}
+        />
       </div>
 
       <Card flush>
@@ -248,6 +311,7 @@ export default function AttendancePage() {
                 <Th>Date</Th>
                 <Th>Check in</Th>
                 <Th>Check out</Th>
+                <Th>Hours</Th>
                 <Th>Where</Th>
                 <Th>Status</Th>
               </tr>
@@ -255,7 +319,7 @@ export default function AttendancePage() {
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <Td colSpan={5} className="py-8 text-center text-mute">
+                  <Td colSpan={6} className="py-8 text-center text-mute">
                     No attendance records found for {month}.
                   </Td>
                 </tr>
@@ -265,6 +329,9 @@ export default function AttendancePage() {
                     <Td className="font-medium text-slate-900">{a.date}</Td>
                     <Td className="num">{a.checkIn}</Td>
                     <Td className="num text-mute">{a.checkOut}</Td>
+                    <Td className="font-mono text-xs font-semibold text-slate-800">
+                      {a.hoursFormatted || "—"}
+                    </Td>
                     <Td>
                       {a.mode === "—" ? (
                         <span className="text-mute">—</span>

@@ -69,6 +69,9 @@ export default function Register() {
         throw new Error(data.error || "Failed to register account.");
       }
 
+      if (typeof window !== "undefined" && data.token) {
+        localStorage.setItem("auth_token", data.token);
+      }
       setSuccess(true);
       setTimeout(() => {
         router.push(data.redirectTo || `/${formData.role}`);

@@ -2,23 +2,34 @@ import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { getClientIp, verifyOfficeNetwork } from '@/lib/ip';
+import { calculateAttendanceHoursSummary, calculateRecordHours, timeToMinutes } from '@/lib/hours';
+
+function getIstNow(): { dateStr: string; timeStr: string; minutes: number } {
+  const now = new Date();
+  const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now); // 'YYYY-MM-DD'
+  const timeStr = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now); // 'HH:mm:ss'
+  const [h, m] = timeStr.split(':').map(Number);
+  return { dateStr, timeStr, minutes: h * 60 + m };
+}
 
 export async function GET(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
-    let userId: number = session?.id || 4;
-    let companyId: number = session?.companyId || 1;
-
+    const session = await getSessionUser(req);
     if (!session?.id || !session?.companyId) {
-      const [defaultEmp] = await query<any[]>(
-        "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
+      return NextResponse.json(
+        { error: 'Unauthorized: Bearer token is missing or invalid', code: 'UNAUTHORIZED' },
+        { status: 401 }
       );
-      if (defaultEmp) {
-        userId = defaultEmp.id;
-        companyId = defaultEmp.company_id;
-      }
     }
+    const userId: number = session.id;
+    const companyId: number = session.companyId;
 
     const { searchParams } = new URL(req.url);
     const month = searchParams.get('month') || 'November 2026';
@@ -44,6 +55,8 @@ export async function GET(req: Request) {
       ORDER BY date DESC
     `, [companyId, userId, startStr, endStr]);
 
+    const { dateStr: todayStr } = getIstNow();
+
     let present = 0;
     let late = 0;
     let halfDays = 0;
@@ -58,6 +71,8 @@ export async function GET(req: Request) {
       else if (r.status === 'Late') late++;
       else if (r.status === 'On leave') onLeave++;
 
+      const dur = calculateRecordHours(checkInStr, checkOutStr, dateStr, todayStr);
+
       return {
         id: r.id,
         date: dateStr,
@@ -65,23 +80,54 @@ export async function GET(req: Request) {
         checkOut: checkOutStr,
         mode: r.mode || 'Office',
         status: r.status,
+        hoursDecimal: dur.hours,
+        hoursFormatted: dur.formatted,
+        isActive: dur.isActive,
       };
     });
 
+    // Calculate aggregated hours summary (Today, This Week, This Month)
+    const hoursSummary = calculateAttendanceHoursSummary(
+      records.map((r) => ({
+        date: r.date,
+        checkIn: r.checkIn,
+        checkOut: r.checkOut,
+        status: r.status,
+      })),
+      todayStr
+    );
+
+    // Fetch company settings to pass shift and late cutoff details
+    const [settings] = await query<any[]>(
+      'SELECT start_time, end_time, late_cutoff_time, grace_minutes, working_days FROM company_settings WHERE company_id = ? LIMIT 1',
+      [companyId]
+    );
+
     const clientIp = getClientIp(req);
     const verification = await verifyOfficeNetwork(companyId, userId, clientIp);
+
+    const lateCutoffDisplay = settings?.late_cutoff_time
+      ? String(settings.late_cutoff_time).slice(0, 5)
+      : '09:15';
 
     return NextResponse.json({
       success: true,
       month,
       clientIp,
       verification,
+      schedule: {
+        startTime: settings?.start_time ? String(settings.start_time).slice(0, 5) : '09:00',
+        endTime: settings?.end_time ? String(settings.end_time).slice(0, 5) : '18:00',
+        lateCutoff: lateCutoffDisplay,
+        workingDays: settings?.working_days || '1,2,3,4,5',
+      },
       summary: {
         present,
         late,
         halfDays,
         onLeave,
       },
+      hours: hoursSummary,
       records,
     });
   } catch (error: any) {
@@ -93,46 +139,49 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
-    let userId: number = session?.id || 4;
-    let companyId: number = session?.companyId || 1;
-
+    const session = await getSessionUser(req);
     if (!session?.id || !session?.companyId) {
-      const [defaultEmp] = await query<any[]>(
-        "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
+      return NextResponse.json(
+        { error: 'Unauthorized: Bearer token is missing or invalid', code: 'UNAUTHORIZED' },
+        { status: 401 }
       );
-      if (defaultEmp) {
-        userId = defaultEmp.id;
-        companyId = defaultEmp.company_id;
-      }
     }
+    const userId: number = session.id;
+    const companyId: number = session.companyId;
 
     const body = await req.json();
     const { action } = body;
 
     const clientIp = getClientIp(req);
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const timeStr = now.toTimeString().split(' ')[0]; // 'HH:mm:ss'
+    const { dateStr: todayStr, timeStr, minutes: currentMinutes } = getIstNow();
 
-    // Fetch company settings to evaluate late mark & grace period
+    // Fetch company settings for shift, late cutoff, and working days
     const [settings] = await query<any[]>(
-      'SELECT start_time, grace_minutes FROM company_settings WHERE company_id = ? LIMIT 1',
+      'SELECT start_time, end_time, late_cutoff_time, grace_minutes, working_days FROM company_settings WHERE company_id = ? LIMIT 1',
       [companyId]
     );
 
-    let startHour = 9;
-    let startMin = 30;
-    if (settings?.start_time) {
-      const [h, m] = String(settings.start_time).split(':').map(Number);
-      if (!isNaN(h)) startHour = h;
-      if (!isNaN(m)) startMin = m;
+    let thresholdMinutes = 9 * 60 + 15; // 09:15 default
+
+    if (settings?.late_cutoff_time) {
+      const cutMin = timeToMinutes(String(settings.late_cutoff_time));
+      if (cutMin !== null) thresholdMinutes = cutMin;
+    } else {
+      let startHour = 9;
+      let startMin = 0;
+      if (settings?.start_time) {
+        const [h, m] = String(settings.start_time).split(':').map(Number);
+        if (!isNaN(h)) startHour = h;
+        if (!isNaN(m)) startMin = m;
+      }
+      const grace = settings?.grace_minutes ?? 15;
+      thresholdMinutes = startHour * 60 + startMin + grace;
     }
-    const grace = settings?.grace_minutes ?? 15;
-    const thresholdMinutes = startHour * 60 + startMin + grace;
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
     const isLate = currentMinutes > thresholdMinutes;
     const initialStatus = isLate ? 'Late' : 'Present';
+
+    const lateCutoffFormatted = `${String(Math.floor(thresholdMinutes / 60)).padStart(2, '0')}:${String(thresholdMinutes % 60).padStart(2, '0')}`;
 
     if (action === 'check_in') {
       // 1. Verify Office Network and WFH status
@@ -175,10 +224,12 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Checked in at ${timeStr.slice(0, 5)} (${modeLabel})${isLate ? ' · Late Mark' : ''}`,
+        message: `Checked in at ${timeStr.slice(0, 5)} (${modeLabel})${isLate ? ` · Late Mark (Office cutoff was ${lateCutoffFormatted})` : ''}`,
         checkInTime: timeStr.slice(0, 5),
         mode: assignedMode,
         status: initialStatus,
+        lateCutoff: lateCutoffFormatted,
+        isLate,
         clientIp,
       });
     }

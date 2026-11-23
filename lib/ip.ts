@@ -39,6 +39,7 @@ export interface NetworkVerificationResult {
   isWfhApproved: boolean;
   wfhStatus: 'Approved' | 'Pending' | 'Rejected' | 'None';
   wfhReason?: string | null;
+  rejectionReason?: string | null;
   clientIp: string;
   reason: string;
   label: string;
@@ -113,7 +114,7 @@ export async function verifyOfficeNetwork(
   // Check if employee has a WFH request for today (Approved, Pending, or Rejected)
   const todayStr = new Date().toISOString().split('T')[0];
   const wfhRows = await query<any[]>(`
-    SELECT id, reason, status
+    SELECT id, reason, rejection_reason, status
     FROM wfh_requests
     WHERE company_id = ? AND user_id = ? AND date = ?
     ORDER BY id DESC
@@ -156,6 +157,7 @@ export async function verifyOfficeNetwork(
 
   // Case 3: WFH was Rejected by HR -> Blocked!
   if (wfh && wfh.status === 'Rejected') {
+    const rejNote = wfh.rejection_reason || (wfh.reason?.includes('[Rejection Reason:') ? wfh.reason.split('[Rejection Reason:')[1]?.replace(/\]$/, '').trim() : null);
     return {
       allowed: false,
       mode: 'Blocked',
@@ -163,8 +165,9 @@ export async function verifyOfficeNetwork(
       isWfhApproved: false,
       wfhStatus: 'Rejected',
       wfhReason: wfh.reason,
+      rejectionReason: rejNote,
       clientIp,
-      reason: 'Your Work From Home request for today was Rejected by HR. Check-in is only permitted from the office WiFi network.',
+      reason: `Your Work From Home request for today was Rejected by HR${rejNote ? `: "${rejNote}"` : ''}. Check-in is only permitted from the office WiFi network.`,
       label: 'WFH Rejected by HR',
       allowedNetworks: activeNets,
     };

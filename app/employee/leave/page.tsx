@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, PlusCircle, Trash2 } from "lucide-react";
+import { Loader2, PlusCircle, Trash2, XCircle, AlertCircle } from "lucide-react";
 import { PageHeader, Card, Stat, Table, Badge, Td, Th, Btn } from "@/components/ui";
-import { useToast } from "@/components/interactive";
+import { Modal, useToast } from "@/components/interactive";
 
 interface LeaveHistoryItem {
   id: number;
@@ -13,13 +13,31 @@ interface LeaveHistoryItem {
   to: string;
   days: number;
   reason: string | null;
+  rejectionReason?: string | null;
   status: string;
 }
 
 interface LeaveBalance {
-  Casual: { credited: number; used: number; left: number; perMonth: number };
-  Sick: { credited: number; used: number; left: number; perMonth: number };
-  Paid: { credited: number; used: number; left: number };
+  Casual: {
+    credited: number;
+    used: number;
+    left: number;
+    perMonth: number;
+    carriedForward?: number;
+    currentMonthAccrual?: number;
+    formula?: string;
+    carryForwardEnabled?: boolean;
+  };
+  Sick: {
+    credited: number;
+    used: number;
+    left: number;
+    perMonth: number;
+    carriedForward?: number;
+    currentMonthAccrual?: number;
+    formula?: string;
+    carryForwardEnabled?: boolean;
+  };
 }
 
 export default function EmployeeLeavePage() {
@@ -27,6 +45,7 @@ export default function EmployeeLeavePage() {
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState<LeaveBalance | null>(null);
   const [history, setHistory] = useState<LeaveHistoryItem[]>([]);
+  const [selectedRejection, setSelectedRejection] = useState<LeaveHistoryItem | null>(null);
 
   // Form
   const [kind, setKind] = useState("Casual");
@@ -58,6 +77,10 @@ export default function EmployeeLeavePage() {
   const handleSendRequest = async () => {
     if (!from) {
       toast("Please choose a start date");
+      return;
+    }
+    if (!why.trim()) {
+      toast("Reason is required to submit a leave or WFH request");
       return;
     }
     setSubmitting(true);
@@ -114,22 +137,33 @@ export default function EmployeeLeavePage() {
         sub="Your available quota balances, request submissions, and history."
       />
 
+      {/* Carry Forward Policy Information Banner */}
+      <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-900 flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <p className="font-semibold text-emerald-950 flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse" />
+            Monthly Leave Accrual & Carry Forward Policy Active
+          </p>
+          <p className="text-emerald-800">
+            Casual Leave accrues at <b>{balance?.Casual.perMonth ?? 1.5} days/month</b> and Sick Leave at <b>{balance?.Sick.perMonth ?? 1.0} days/month</b>. Unused leaves automatically carry forward into the next month.
+          </p>
+        </div>
+        <div className="rounded-lg bg-white border border-emerald-200 px-3 py-1.5 font-mono text-emerald-800 font-semibold shadow-xs">
+          CL Formula: {balance?.Casual.formula || `${balance?.Casual.carriedForward || 0} carried + 1.5 current`}
+        </div>
+      </div>
+
       {/* Quota Balance Cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <Stat
-          label="Casual leave"
-          value={`${balance?.Casual.left ?? 0} left`}
-          note={`of ${balance?.Casual.credited ?? 0} credited · ${balance?.Casual.perMonth ?? 1} a month`}
+          label="Casual leave (CL)"
+          value={`${balance?.Casual.left ?? 0} days left`}
+          note={balance?.Casual.formula ? `${balance.Casual.formula} · ${balance.Casual.used} used` : `1.5/mo · ${balance?.Casual.used ?? 0} used`}
         />
         <Stat
-          label="Sick leave"
-          value={`${balance?.Sick.left ?? 0} left`}
-          note={`of ${balance?.Sick.credited ?? 0} credited · ${balance?.Sick.perMonth ?? 1} a month`}
-        />
-        <Stat
-          label="Paid leave"
-          value={`${balance?.Paid.left ?? 0} left`}
-          note={`of ${balance?.Paid.credited ?? 12} annual days`}
+          label="Sick leave (SL)"
+          value={`${balance?.Sick.left ?? 0} days left`}
+          note={balance?.Sick.formula ? `${balance.Sick.formula} · ${balance.Sick.used} used` : `1.0/mo · ${balance?.Sick.used ?? 0} used`}
         />
       </div>
 
@@ -147,9 +181,8 @@ export default function EmployeeLeavePage() {
                 value={kind}
                 onChange={(e) => setKind(e.target.value)}
               >
-                <option value="Casual">Casual leave</option>
-                <option value="Sick">Sick leave</option>
-                <option value="Paid">Paid leave</option>
+                <option value="Casual">Casual leave (CL)</option>
+                <option value="Sick">Sick leave (SL)</option>
                 <option value="Work from home">Work from home</option>
               </select>
             </div>
@@ -197,16 +230,24 @@ export default function EmployeeLeavePage() {
 
             <div>
               <label className="label" htmlFor="why">
-                Reason (optional)
+                Reason for request <span className="text-rose-500 font-semibold">*</span>
               </label>
               <textarea
                 id="why"
                 rows={3}
+                required
                 className="field text-sm"
-                placeholder="Why you need leave or work from home..."
+                placeholder="Explain the reason for your leave or WFH (Required)..."
                 value={why}
                 onChange={(e) => setWhy(e.target.value)}
               />
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-[11px] text-slate-600 space-y-1">
+              <span className="font-semibold text-slate-800 block">⚡ 48-Hour Auto-Approval Policy</span>
+              <p>
+                Requests submitted <b>5+ days in advance</b> with sufficient leave credits are automatically approved after <b>48 hours</b> if HR does not respond.
+              </p>
             </div>
 
             <Btn
@@ -255,17 +296,30 @@ export default function EmployeeLeavePage() {
                       </Td>
                       <Td className="num">{h.days}</Td>
                       <Td>
-                        <Badge
-                          tone={
-                            h.status === "Approved"
-                              ? "green"
-                              : h.status === "Pending"
-                              ? "amber"
-                              : "rose"
-                          }
-                        >
-                          {h.status}
-                        </Badge>
+                        <div className="flex flex-col gap-1 items-start">
+                          <Badge
+                            tone={
+                              h.status === "Approved"
+                                ? "green"
+                                : h.status === "Pending"
+                                ? "amber"
+                                : "rose"
+                            }
+                          >
+                            {h.status}
+                          </Badge>
+                          {h.status === "Rejected" && h.rejectionReason && (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedRejection(h)}
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded px-1.5 py-0.5 text-left max-w-[190px] transition-colors"
+                              title="Click to view HR rejection reason"
+                            >
+                              <AlertCircle className="h-3 w-3 shrink-0 text-rose-600" />
+                              <span className="truncate">Why: {h.rejectionReason}</span>
+                            </button>
+                          )}
+                        </div>
                       </Td>
                       <Td className="text-right">
                         {h.status === "Pending" && (
@@ -274,6 +328,15 @@ export default function EmployeeLeavePage() {
                             onClick={() => handleCancel(h)}
                           >
                             Cancel
+                          </button>
+                        )}
+                        {h.status === "Rejected" && h.rejectionReason && (
+                          <button
+                            type="button"
+                            className="text-xs text-rose-700 hover:text-rose-900 font-medium underline"
+                            onClick={() => setSelectedRejection(h)}
+                          >
+                            View Reason
                           </button>
                         )}
                       </Td>
@@ -285,6 +348,43 @@ export default function EmployeeLeavePage() {
           )}
         </Card>
       </div>
+
+      {/* View Rejection Details Modal */}
+      <Modal
+        open={!!selectedRejection}
+        onClose={() => setSelectedRejection(null)}
+        title="Request Rejection Details"
+        desc={
+          selectedRejection
+            ? `${selectedRejection.type} (${
+                selectedRejection.from === selectedRejection.to
+                  ? selectedRejection.from
+                  : `${selectedRejection.from} to ${selectedRejection.to}`
+              })`
+            : undefined
+        }
+        footer={
+          <Btn variant="outline" onClick={() => setSelectedRejection(null)}>
+            Close
+          </Btn>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg bg-slate-50 p-3.5 border border-slate-200">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Your Submitted Request Reason</p>
+            <p className="text-sm text-slate-800 mt-1">{selectedRejection?.reason || "No request note provided."}</p>
+          </div>
+          <div className="rounded-lg bg-rose-50 p-4 border border-rose-200">
+            <div className="flex items-center gap-1.5 text-rose-900 font-bold text-xs uppercase tracking-wider">
+              <XCircle className="h-4 w-4 text-rose-600" />
+              Reason for Rejection by HR
+            </div>
+            <p className="text-sm text-rose-950 mt-2 font-medium whitespace-pre-wrap leading-relaxed">
+              {selectedRejection?.rejectionReason || "No specific rejection reason provided."}
+            </p>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

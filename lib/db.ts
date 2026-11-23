@@ -17,6 +17,7 @@ const pool =
     connectionLimit: 10,
     queueLimit: 0,
     connectTimeout: 10000,
+    dateStrings: true,
   });
 
 global._mysqlPool = pool;

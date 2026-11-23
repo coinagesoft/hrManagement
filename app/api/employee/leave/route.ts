@@ -1,71 +1,89 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { processLeaveAutoApprovals } from '@/lib/leave-auto-approval';
 
-export async function GET() {
+export async function GET(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
-    let userId = session?.id;
-    let companyId = session?.companyId;
-
-    if (!userId || !companyId) {
-      const [defaultEmp] = await query<any[]>(
-        "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
+    const session = await getSessionUser(req);
+    if (!session?.id || !session?.companyId) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Bearer token is missing or invalid', code: 'UNAUTHORIZED' },
+        { status: 401 }
       );
-      userId = defaultEmp?.id || 4;
-      companyId = defaultEmp?.company_id || 1;
     }
+    const userId = session.id;
+    const companyId = session.companyId;
 
-    // 1. Leave Policy
+    // Process any pending leaves meeting the 48-hour auto-approval criteria
+    await processLeaveAutoApprovals(companyId);
+
+    // 1. Leave Policy with Carry Forward
     const [policy] = await query<any[]>(
       'SELECT * FROM leave_policies WHERE company_id = ? LIMIT 1',
       [companyId]
     );
-    const casualPerMo = Number(policy?.casual_per_month ?? 1.0);
+    const casualPerMo = Number(policy?.casual_per_month ?? 1.5);
     const sickPerMo = Number(policy?.sick_per_month ?? 1.0);
-    const paidPerYr = Number(policy?.paid_per_year ?? 12);
+    const carryForwardEnabled = Boolean(policy?.carry_forward_enabled ?? 1);
 
-    const casualCredited = Math.round(casualPerMo * 11 * 10) / 10;
-    const sickCredited = Math.round(sickPerMo * 11 * 10) / 10;
-    const paidCredited = paidPerYr;
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1; // 1-12 (November is 11)
+    const currentYear = now.getFullYear();
+    const priorMonthsCount = Math.max(0, currentMonth - 1);
 
-    // 2. Used leaves
-    const usedLeaves = await query<any[]>(`
-      SELECT leave_type, COALESCE(SUM(days_count), 0) AS used_days
+    // 2. Used leaves breakdown by type and month
+    const usedLeavesRows = await query<any[]>(`
+      SELECT leave_type, MONTH(start_date) AS m, COALESCE(SUM(days_count), 0) AS used_days
       FROM leave_requests
-      WHERE company_id = ? AND user_id = ? AND status = 'Approved'
-      GROUP BY leave_type
-    `, [companyId, userId]);
+      WHERE company_id = ? AND user_id = ? AND status = 'Approved' AND YEAR(start_date) = ?
+      GROUP BY leave_type, MONTH(start_date)
+    `, [companyId, userId, currentYear]);
 
-    const usedMap: Record<string, number> = { Casual: 0, Sick: 0, Paid: 0 };
-    usedLeaves.forEach((r) => {
-      usedMap[r.leave_type] = Number(r.used_days);
-    });
+    function computeLeaveBalance(type: string, ratePerMo: number) {
+      const priorUsed = usedLeavesRows
+        .filter((r) => r.leave_type?.toLowerCase() === type.toLowerCase() && r.m < currentMonth)
+        .reduce((sum, r) => sum + Number(r.used_days), 0);
+
+      const currentUsed = usedLeavesRows
+        .filter((r) => r.leave_type?.toLowerCase() === type.toLowerCase() && r.m === currentMonth)
+        .reduce((sum, r) => sum + Number(r.used_days), 0);
+
+      const totalUsedYtd = priorUsed + currentUsed;
+
+      let carriedForward = 0;
+      if (carryForwardEnabled && priorMonthsCount > 0) {
+        const priorAccrued = Math.round(priorMonthsCount * ratePerMo * 10) / 10;
+        carriedForward = Math.max(0, Math.round((priorAccrued - priorUsed) * 10) / 10);
+      }
+
+      const currentMonthAccrual = ratePerMo;
+      const totalAvailable = Math.max(0, Math.round((carriedForward + currentMonthAccrual - currentUsed) * 10) / 10);
+      const totalCredited = Math.round((carriedForward + currentMonthAccrual + priorUsed) * 10) / 10;
+
+      return {
+        perMonth: ratePerMo,
+        carriedForward,
+        currentMonthAccrual,
+        credited: totalCredited,
+        used: totalUsedYtd,
+        left: totalAvailable,
+        carryForwardEnabled,
+        formula: carryForwardEnabled
+          ? `${carriedForward.toFixed(1)} carried + ${currentMonthAccrual.toFixed(1)} this month`
+          : `${currentMonthAccrual.toFixed(1)}/month`,
+      };
+    }
 
     const balance = {
-      Casual: {
-        credited: casualCredited,
-        used: usedMap.Casual || 0,
-        left: Math.max(0, casualCredited - (usedMap.Casual || 0)),
-        perMonth: casualPerMo,
-      },
-      Sick: {
-        credited: sickCredited,
-        used: usedMap.Sick || 0,
-        left: Math.max(0, sickCredited - (usedMap.Sick || 0)),
-        perMonth: sickPerMo,
-      },
-      Paid: {
-        credited: paidCredited,
-        used: usedMap.Paid || 0,
-        left: Math.max(0, paidCredited - (usedMap.Paid || 0)),
-      },
+      Casual: computeLeaveBalance('Casual', casualPerMo),
+      Sick: computeLeaveBalance('Sick', sickPerMo),
     };
 
     // 3. Employee Leave Requests
     const leaves = await query<any[]>(`
-      SELECT id, leave_type AS type, start_date, end_date, days_count AS days, reason, status, created_at
+      SELECT id, leave_type AS type, start_date, end_date, days_count AS days, reason, rejection_reason, status, created_at
       FROM leave_requests
       WHERE company_id = ? AND user_id = ?
       ORDER BY start_date DESC
@@ -73,7 +91,7 @@ export async function GET() {
 
     // 4. Employee WFH Requests
     const wfh = await query<any[]>(`
-      SELECT id, date AS start_date, date AS end_date, 1 AS days, reason, status, created_at
+      SELECT id, date AS start_date, date AS end_date, 1 AS days, reason, rejection_reason, status, created_at
       FROM wfh_requests
       WHERE company_id = ? AND user_id = ?
       ORDER BY date DESC
@@ -90,6 +108,7 @@ export async function GET() {
         to: fmt(l.end_date),
         days: Number(l.days),
         reason: l.reason,
+        rejectionReason: l.rejection_reason || (l.reason?.includes('[Rejection Reason:') ? l.reason.split('[Rejection Reason:')[1]?.replace(/\]$/, '').trim() : null),
         status: l.status,
       })),
       ...wfh.map((w) => ({
@@ -100,6 +119,7 @@ export async function GET() {
         to: fmt(w.end_date),
         days: 1,
         reason: w.reason,
+        rejectionReason: w.rejection_reason || (w.reason?.includes('[Rejection Reason:') ? w.reason.split('[Rejection Reason:')[1]?.replace(/\]$/, '').trim() : null),
         status: w.status,
       })),
     ].sort((a, b) => b.from.localeCompare(a.from));
@@ -118,23 +138,25 @@ export async function GET() {
 export async function POST(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
-    let userId = session?.id;
-    let companyId = session?.companyId;
-
-    if (!userId || !companyId) {
-      const [defaultEmp] = await query<any[]>(
-        "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
+    const session = await getSessionUser(req);
+    if (!session?.id || !session?.companyId) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Bearer token is missing or invalid', code: 'UNAUTHORIZED' },
+        { status: 401 }
       );
-      userId = defaultEmp?.id || 4;
-      companyId = defaultEmp?.company_id || 1;
     }
+    const userId = session.id;
+    const companyId = session.companyId;
 
     const body = await req.json();
     const { kind, from, to, half = false, why } = body;
 
     if (!from) {
       return NextResponse.json({ success: false, error: 'Start date is required' }, { status: 400 });
+    }
+
+    if (!why || !String(why).trim()) {
+      return NextResponse.json({ success: false, error: 'Reason is required for all leave and WFH requests' }, { status: 400 });
     }
 
     const endDate = to || from;
@@ -192,17 +214,15 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
-    let userId = session?.id;
-    let companyId = session?.companyId;
-
-    if (!userId || !companyId) {
-      const [defaultEmp] = await query<any[]>(
-        "SELECT id, company_id FROM users WHERE role = 'employee' ORDER BY id ASC LIMIT 1"
+    const session = await getSessionUser(req);
+    if (!session?.id || !session?.companyId) {
+      return NextResponse.json(
+        { error: 'Unauthorized: Bearer token is missing or invalid', code: 'UNAUTHORIZED' },
+        { status: 401 }
       );
-      userId = defaultEmp?.id || 4;
-      companyId = defaultEmp?.company_id || 1;
     }
+    const userId = session.id;
+    const companyId = session.companyId;
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

@@ -34,6 +34,7 @@ interface DashboardData {
       isWfhApproved: boolean;
       wfhStatus?: "Approved" | "Pending" | "Rejected" | "None";
       wfhReason?: string | null;
+      rejectionReason?: string | null;
       clientIp: string;
       reason: string;
       label: string;
@@ -46,10 +47,25 @@ interface DashboardData {
     lateCount: number;
     leaveCount: number;
   };
+  hoursSummary?: {
+    todayHours: number;
+    todayFormatted: string;
+    weekHours: number;
+    weekFormatted: string;
+    monthHours: number;
+    monthFormatted: string;
+    avgDailyHours: number;
+    presentCount: number;
+  };
+  schedule?: {
+    startTime: string;
+    endTime: string;
+    lateCutoff: string;
+    workingDays: string;
+  };
   leaveBalance: {
-    casual: { credited: number; used: number; left: number };
-    sick: { credited: number; used: number; left: number };
-    paid: { credited: number; used: number; left: number };
+    casual: { credited: number; used: number; left: number; formula?: string; carriedForward?: number };
+    sick: { credited: number; used: number; left: number; formula?: string; carriedForward?: number };
   };
   latestPayslip: {
     month: string;
@@ -62,6 +78,23 @@ interface DashboardData {
     name: string;
     date: string;
     kind: string;
+  }[];
+  salaryStatus?: {
+    month: string;
+    cycleDate: number;
+    isPaid: boolean;
+    paidOn: string | null;
+    pending: boolean;
+    message: string;
+  };
+  recentRejections?: {
+    kind: string;
+    type: string;
+    period: string;
+    days?: number;
+    reason: string;
+    rejectionReason: string | null;
+    decidedAt: string;
   }[];
 }
 
@@ -170,7 +203,7 @@ export default function EmployeeHomePage() {
   const verif = today?.verification;
 
   const totalLeaveLeft =
-    (leave?.casual.left || 0) + (leave?.sick.left || 0) + (leave?.paid.left || 0);
+    (leave?.casual.left || 0) + (leave?.sick.left || 0);
 
   const isNetworkAllowed = verif?.allowed ?? true;
 
@@ -180,6 +213,87 @@ export default function EmployeeHomePage() {
         title={`Good day, ${user?.name?.split(" ")[0] || "Team Member"}`}
         sub={`${user?.title} · ${user?.companyName}`}
       />
+
+      {/* Monthly Salary Status Banner (1st of month cycle) */}
+      {data?.salaryStatus?.pending && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white font-bold text-base shadow-xs">
+              ₹
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">Monthly Salary Pending Disbursement</span>
+                <span className="rounded bg-amber-200/80 px-2 py-0.5 text-[11px] font-medium text-amber-800">Cycle: 1st of month</span>
+              </div>
+              <p className="mt-0.5 text-amber-800">
+                Salary for <b>{data.salaryStatus.month}</b> is currently pending payment by HR/Admin. You will be able to request and view your salary slip once marked paid.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/employee/payslips"
+            className="rounded-lg bg-white border border-amber-300 px-3 py-1.5 font-medium text-amber-800 hover:bg-amber-100/60 transition shadow-2xs"
+          >
+            View Payslips
+          </Link>
+        </div>
+      )}
+
+      {data?.salaryStatus && !data.salaryStatus.pending && (
+        <div className="mb-6 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <span>
+              Salary for <b>{data.salaryStatus.month}</b> was disbursed on <b>{data.salaryStatus.paidOn || '1st of the month'}</b>.
+            </span>
+          </div>
+          <Link
+            href="/employee/payslips"
+            className="font-semibold text-emerald-700 hover:text-emerald-900 hover:underline"
+          >
+            Request / View Salary Slip →
+          </Link>
+        </div>
+      )}
+
+      {/* Rejected Request Alerts Banner */}
+      {data?.recentRejections && data.recentRejections.length > 0 && (
+        <div className="mb-6 space-y-3">
+          {data.recentRejections.map((rej, idx) => (
+            <div
+              key={idx}
+              className="rounded-xl border border-rose-200 bg-rose-50/90 p-4 text-xs text-rose-900 shadow-xs flex flex-wrap items-start justify-between gap-3"
+            >
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600">
+                  <XCircle className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-rose-950 text-sm">
+                    {rej.type} Request Rejected by HR ({rej.period})
+                  </p>
+                  <p className="text-rose-800 mt-1">
+                    <span className="font-medium text-rose-950">HR Rejection Reason: </span>
+                    <span className="font-semibold">{rej.rejectionReason || "No specific feedback provided."}</span>
+                  </p>
+                  {rej.reason && (
+                    <p className="text-rose-600 text-[11px] mt-0.5">
+                      Your original note: &quot;{rej.reason}&quot;
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Link
+                href="/employee/leave"
+                className="rounded-lg bg-white border border-rose-200 px-3 py-1.5 font-medium text-rose-800 hover:bg-rose-100/60 transition shadow-2xs"
+              >
+                View Requests
+              </Link>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Clock-in Punch & Network Status Section */}
       <section className="rounded-xl border border-line bg-white p-6 sm:p-8 shadow-sm">
@@ -224,7 +338,7 @@ export default function EmployeeHomePage() {
                   </p>
                 </div>
               ) : verif?.wfhStatus === "Rejected" ? (
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <div className="flex items-center gap-2 text-sm text-rose-800 font-medium">
                     <span className="flex h-2.5 w-2.5 rounded-full bg-rose-500" />
                     <XCircle className="h-4 w-4 text-rose-600" />
@@ -232,6 +346,12 @@ export default function EmployeeHomePage() {
                       WFH request was <b>Rejected by HR</b>
                     </span>
                   </div>
+                  {verif?.rejectionReason && (
+                    <div className="rounded-md bg-rose-50 border border-rose-200 px-2.5 py-1.5 text-xs text-rose-900">
+                      <span className="font-semibold text-rose-950">Rejection Reason: </span>
+                      <span>{verif.rejectionReason}</span>
+                    </div>
+                  )}
                   <p className="text-xs text-rose-700">
                     Check-in is only permitted when connected to an authorized office WiFi network.
                   </p>
@@ -352,12 +472,53 @@ export default function EmployeeHomePage() {
         </div>
       )}
 
-      {/* Metrics Row */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      {/* Work Hours & Late Mark Policy */}
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2 text-slate-700">
+          <Clock className="h-4 w-4 text-pine" />
+          <span className="font-semibold text-slate-900">Office Working Hours:</span>
+          <span>{data?.schedule?.startTime || "09:00"} – {data?.schedule?.endTime || "18:00"} (Mon–Fri)</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-900 border border-amber-300">
+            Late Cutoff: {data?.schedule?.lateCutoff || "09:15"} AM
+          </span>
+          <span className="text-slate-500">
+            Check-in after {data?.schedule?.lateCutoff || "09:15"} AM is recorded as a <b>Late Mark</b>.
+          </span>
+        </div>
+      </div>
+
+      {/* Calculated Hours Worked Metrics */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-4">
         <Stat
-          label="Leave left this year"
+          label="Today's work time"
+          value={data?.hoursSummary?.todayFormatted || "0h 00m"}
+          note={today?.checkedIn && !today?.checkedOut ? "Clock running" : "Today's hours"}
+        />
+        <Stat
+          label="This week's hours"
+          value={data?.hoursSummary?.weekFormatted || "0h 00m"}
+          note="Standard 40h target"
+        />
+        <Stat
+          label="This month's hours"
+          value={data?.hoursSummary?.monthFormatted || "0h 00m"}
+          note={`${summary?.presentCount ?? 0} days recorded`}
+        />
+        <Stat
+          label="Late arrivals"
+          value={`${summary?.lateCount ?? 0}`}
+          note={summary?.lateCount ? "Logged after cutoff" : "Zero late marks"}
+        />
+      </div>
+
+      {/* Metrics Row */}
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <Stat
+          label="Leave quota (CL + SL with carry forward)"
           value={`${totalLeaveLeft} days`}
-          note={`Casual ${leave?.casual.left ?? 0} · Sick ${leave?.sick.left ?? 0} · Paid ${leave?.paid.left ?? 0}`}
+          note={`Casual ${leave?.casual.left ?? 0} (${leave?.casual.formula || "1.5/mo"}) · Sick ${leave?.sick.left ?? 0} (${leave?.sick.formula || "1.0/mo"})`}
         />
         <Stat
           label="Present in November"

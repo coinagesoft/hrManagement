@@ -2,10 +2,10 @@ import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
 
-export async function GET() {
+export async function GET(req: Request) {
   await connection();
   try {
-    const session = await getSessionUser();
+    const session = await getSessionUser(req);
     if (!session) {
       return NextResponse.json({ authenticated: false, user: null }, { status: 401 });
     }

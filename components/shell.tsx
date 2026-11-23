@@ -65,6 +65,24 @@ export function Shell({ role, children }: { role: Role; children: React.ReactNod
   const [todayStr, setTodayStr] = useState("Tue, 17 Nov 2026");
 
   useEffect(() => {
+    // Intercept client-side fetch calls to automatically attach Bearer token if stored
+    if (typeof window !== "undefined" && !(window as any).__auth_fetch_patched) {
+      (window as any).__auth_fetch_patched = true;
+      const originalFetch = window.fetch;
+      window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+        const token = localStorage.getItem("auth_token");
+        if (token) {
+          init = init || {};
+          const headers = new Headers(init.headers || {});
+          if (!headers.has("Authorization") && !headers.has("authorization")) {
+            headers.set("Authorization", `Bearer ${token}`);
+          }
+          init.headers = headers;
+        }
+        return originalFetch(input, init);
+      };
+    }
+
     setTodayStr(
       new Date().toLocaleDateString("en-US", {
         weekday: "short",
@@ -74,7 +92,10 @@ export function Shell({ role, children }: { role: Role; children: React.ReactNod
       })
     );
 
-    fetch("/api/auth/me")
+    const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+    fetch("/api/auth/me", {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.authenticated && data?.user) {
@@ -87,6 +108,9 @@ export function Shell({ role, children }: { role: Role; children: React.ReactNod
   const handleSignOut = async () => {
     setLoggingOut(true);
     try {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("auth_token");
+      }
       await fetch("/api/auth/logout", { method: "POST" });
     } catch {}
     router.push("/login");

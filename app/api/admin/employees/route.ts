@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getSessionUser, hashPassword } from '@/lib/auth';
 import { query } from '@/lib/db';
 import { sendEmployeeInvitationEmail } from '@/lib/email';
+import { getCompanyInvitationAttachments } from '@/lib/invitation-docs';
 
 async function resolveCompanyId(): Promise<number> {
   const session = await getSessionUser();
@@ -139,7 +140,8 @@ export async function POST(request: Request) {
 
         const inviteLink = `${origin}/accept-invite?token=${inviteToken}`;
 
-        // Re-dispatch email
+        // Re-dispatch email with invitation documents attached
+        const attachments = await getCompanyInvitationAttachments(companyId);
         await sendEmployeeInvitationEmail({
           toEmail: cleanEmail,
           employeeName: cleanName,
@@ -147,6 +149,7 @@ export async function POST(request: Request) {
           role: cleanRole,
           department: dept,
           inviteLink,
+          attachments,
         });
 
         await query(
@@ -205,6 +208,7 @@ export async function POST(request: Request) {
 
         const inviteLink = `${origin}/accept-invite?token=${inviteToken}`;
 
+        const attachments = await getCompanyInvitationAttachments(companyId);
         await sendEmployeeInvitationEmail({
           toEmail: cleanEmail,
           employeeName: cleanName,
@@ -212,6 +216,7 @@ export async function POST(request: Request) {
           role: cleanRole,
           department: dept,
           inviteLink,
+          attachments,
         });
 
         await query(
@@ -298,7 +303,8 @@ export async function POST(request: Request) {
 
     const inviteLink = `${origin}/accept-invite?token=${inviteToken}`;
 
-    // Dispatch invitation email via Gmail SMTP (or simulated fallback)
+    // Dispatch invitation email with active company onboarding documents attached
+    const attachments = await getCompanyInvitationAttachments(companyId);
     const mailRes = await sendEmployeeInvitationEmail({
       toEmail: cleanEmail,
       employeeName: cleanName,
@@ -306,6 +312,7 @@ export async function POST(request: Request) {
       role: cleanRole,
       department: dept,
       inviteLink,
+      attachments,
     });
 
     // Record audit log

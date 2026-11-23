@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Check, House, UserCheck, Users, UserX, X, Loader2 } from "lucide-react";
+import { Check, House, UserCheck, Users, UserX, X, Loader2, CheckCircle2, Banknote, Layers } from "lucide-react";
 import { Avatar, Badge, Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge } from "@/components/ui";
-import { useToast } from "@/components/interactive";
+import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 import { fmtShort } from "@/lib/dates";
 
@@ -28,10 +28,19 @@ interface DashboardData {
     dates: string;
     days?: number;
     reason: string;
+    sandwichConflict?: any;
   }[];
   outToday: { id: number; name: string; dept: string }[];
   upcomingHolidays: { id: number; name: string; date: string; kind: string }[];
   weekSummary: { d: string; p: number; w: number; l: number; a: number }[];
+  salaryStatus?: {
+    month: string;
+    cycleDate: number;
+    isPaid: boolean;
+    paidOn: string | null;
+    pending: boolean;
+    message: string;
+  };
 }
 
 export default function ManagerDashboard() {
@@ -41,6 +50,8 @@ export default function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [decisions, setDecisions] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rejectingItem, setRejectingItem] = useState<DashboardData["pendingApprovals"][0] | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const fetchDashboard = async () => {
     try {
@@ -60,7 +71,7 @@ export default function ManagerDashboard() {
     fetchDashboard();
   }, []);
 
-  const act = async (item: DashboardData["pendingApprovals"][0], action: "Approved" | "Rejected") => {
+  const act = async (item: DashboardData["pendingApprovals"][0], action: "Approved" | "Rejected", reasonText?: string) => {
     setActionLoading(item.id);
     try {
       const res = await fetch("/api/admin/approvals", {
@@ -70,6 +81,7 @@ export default function ManagerDashboard() {
           id: item.rawId,
           type: item.kind,
           action,
+          reason: action === "Rejected" ? (reasonText || rejectReason).trim() : undefined,
         }),
       });
 
@@ -78,6 +90,8 @@ export default function ManagerDashboard() {
 
       setDecisions((d) => ({ ...d, [item.id]: action }));
       toast(`${action}: ${item.who}`);
+      setRejectingItem(null);
+      setRejectReason("");
       fetchDashboard();
     } catch (err: any) {
       toast(err.message || "Action failed");
@@ -126,6 +140,49 @@ export default function ManagerDashboard() {
         }
       />
 
+      {/* Salary Pending Alert Banner (1st of month cycle) */}
+      {data?.salaryStatus?.pending && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-2xs animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white font-bold shadow-xs text-lg">
+              ₹
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">Monthly Salary Pending Payment</span>
+                <Badge tone="amber">Cycle: 1st of month</Badge>
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Salary payout for <b>{data.salaryStatus.month}</b> is pending. Please verify deductions, finalize amounts, and mark as paid.
+              </p>
+            </div>
+          </div>
+          <Link
+            href={`/${role}/payroll`}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-amber-700 transition"
+          >
+            Go to Payroll & Mark as Paid →
+          </Link>
+        </div>
+      )}
+
+      {data?.salaryStatus && !data.salaryStatus.pending && (
+        <div className="mb-6 flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-900 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <span>
+              Salary for <b>{data.salaryStatus.month}</b> has been paid on <b>{data.salaryStatus.paidOn || '1st of the month'}</b>.
+            </span>
+          </div>
+          <Link
+            href={`/${role}/payroll`}
+            className="font-semibold text-emerald-700 hover:text-emerald-900 hover:underline"
+          >
+            View Payroll Details →
+          </Link>
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link href={`/${role}/employees`} className="block transition hover:opacity-95">
           <StatCard label="Total employees" value={active} icon={Users} hint="Active team headcount" />
@@ -173,6 +230,14 @@ export default function ManagerDashboard() {
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-slate-900">{r.who}</p>
                         <Badge tone={r.kind === "WFH" ? "teal" : "blue"}>{r.kind}</Badge>
+                        {r.sandwichConflict && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-amber-100 border border-amber-300 px-1.5 py-0.2 text-[10px] font-bold text-amber-900 shadow-2xs"
+                            title={r.sandwichConflict.warningMessage}
+                          >
+                            <Layers className="h-2.5 w-2.5 text-amber-800" /> Sandwich Leave
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {r.dates} {r.days ? `(${r.days} days)` : ""} · <em>{r.reason}</em>
@@ -188,7 +253,10 @@ export default function ManagerDashboard() {
                         variant="outline"
                         icon={X}
                         disabled={actionLoading === r.id}
-                        onClick={() => act(r, "Rejected")}
+                        onClick={() => {
+                          setRejectingItem(r);
+                          setRejectReason("");
+                        }}
                       >
                         Reject
                       </Btn>
@@ -287,6 +355,81 @@ export default function ManagerDashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Reject Reason Modal Popup */}
+      <Modal
+        open={!!rejectingItem}
+        onClose={() => {
+          setRejectingItem(null);
+          setRejectReason("");
+        }}
+        title={`Reject ${rejectingItem?.kind} Request`}
+        desc={rejectingItem ? `${rejectingItem.who} · ${rejectingItem.type} (${rejectingItem.dates})` : undefined}
+        footer={
+          <>
+            <Btn
+              variant="outline"
+              onClick={() => {
+                setRejectingItem(null);
+                setRejectReason("");
+              }}
+            >
+              Cancel
+            </Btn>
+            <Btn
+              variant="danger"
+              disabled={actionLoading !== null || !rejectReason.trim()}
+              onClick={() => rejectingItem && act(rejectingItem, "Rejected", rejectReason.trim())}
+            >
+              {actionLoading !== null ? "Rejecting..." : "Confirm Rejection"}
+            </Btn>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {rejectingItem?.sandwichConflict && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3 text-xs text-amber-950">
+              <div className="flex items-center gap-1.5 font-bold">
+                <Layers className="h-3.5 w-3.5 text-amber-800" />
+                <span>Sandwich Leave Detected</span>
+              </div>
+              <p className="mt-1 text-[11px] text-amber-900 leading-relaxed">
+                {rejectingItem.sandwichConflict.warningMessage}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setRejectReason(
+                    `Leave request declined under company sandwich policy bordering ${rejectingItem.sandwichConflict.holidayName} (${rejectingItem.sandwichConflict.blockRange}). Leaves bridging weekends and holidays are strictly prohibited.`
+                  )
+                }
+                className="mt-2 inline-flex items-center gap-1 rounded bg-amber-200 hover:bg-amber-300 px-2.5 py-1 text-xs font-semibold text-amber-950 transition cursor-pointer"
+              >
+                Use Sandwich Policy Rejection Reason
+              </button>
+            </div>
+          )}
+
+          {rejectingItem?.reason && (
+            <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs text-slate-700">
+              <span className="font-semibold text-slate-900">Employee Request Note: </span>
+              <span>{rejectingItem.reason}</span>
+            </div>
+          )}
+          <Field
+            label="Reason for rejection (Required)"
+            hint="Please state the business or operational reason for declining this request."
+          >
+            <textarea
+              className={`${inputCls} min-h-[95px] resize-none`}
+              required
+              placeholder="e.g. Critical release scheduled for that day, or team coverage requirements..."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </Field>
+        </div>
+      </Modal>
     </>
   );
 }

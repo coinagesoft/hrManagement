@@ -1,6 +1,7 @@
 import { NextResponse, connection } from 'next/server';
 import { getSessionUser } from '@/lib/auth';
 import { query } from '@/lib/db';
+import { calculateSandwichBlocks, checkLeaveSandwichConflict } from '@/lib/sandwich';
 
 export async function GET() {
   await connection();
@@ -48,7 +49,9 @@ export async function GET() {
 
     // 4. Pending Leave requests
     const pendingLeaves = await query<any[]>(`
-      SELECT lr.id, lr.leave_type AS type, lr.start_date AS \`from\`, lr.end_date AS \`to\`,
+      SELECT lr.id, lr.leave_type AS type, 
+             DATE_FORMAT(lr.start_date, '%Y-%m-%d') AS \`from\`, 
+             DATE_FORMAT(lr.end_date, '%Y-%m-%d') AS \`to\`,
              lr.days_count AS days, lr.reason, lr.status, lr.created_at,
              u.id AS user_id, u.name AS who, u.department AS dept, u.title
       FROM leave_requests lr
@@ -56,6 +59,17 @@ export async function GET() {
       WHERE lr.company_id = ? AND lr.status = 'Pending'
       ORDER BY lr.created_at DESC
     `, [companyId]);
+
+    // Fetch company holidays for sandwich check
+    const allCompanyHolidays = await query<any[]>(`
+      SELECT id, name, DATE_FORMAT(date, '%Y-%m-%d') AS date, kind
+      FROM holidays
+      WHERE (company_id = ? OR company_id IS NULL)
+      ORDER BY date ASC
+    `, [companyId]);
+    const { dateMap: dashSandwichMap } = calculateSandwichBlocks(
+      allCompanyHolidays.map((h) => ({ name: h.name, date: String(h.date) }))
+    );
 
     // 5. Pending WFH requests
     const pendingWfh = await query<any[]>(`
@@ -85,9 +99,29 @@ export async function GET() {
       { d: 'Fri', p: Math.max(presentCount - 2, 1), w: 3, l: 1, a: 1 },
     ];
 
+    // Salary Cycle & Payment Status for November 2026
+    const currentMonthName = 'November 2026';
+    const [currentPayrollRun] = await query<any[]>(
+      'SELECT status, paid_on, cycle_date FROM payroll_runs WHERE company_id = ? AND month = ? LIMIT 1',
+      [companyId, currentMonthName]
+    );
+
+    const isSalaryPaid = currentPayrollRun?.status === 'Paid';
+    const salaryStatus = {
+      month: currentMonthName,
+      cycleDate: Number(currentPayrollRun?.cycle_date || 1),
+      isPaid: isSalaryPaid,
+      paidOn: currentPayrollRun?.paid_on ? String(currentPayrollRun.paid_on).split('T')[0] : null,
+      pending: !isSalaryPaid,
+      message: !isSalaryPaid
+        ? `Salary payout for ${currentMonthName} is pending to pay (Salary cycle: 1st of the month).`
+        : `Salary for ${currentMonthName} has been paid on ${currentPayrollRun?.paid_on ? String(currentPayrollRun.paid_on).split('T')[0] : '1st of the month'}.`,
+    };
+
     return NextResponse.json({
       success: true,
       company,
+      salaryStatus,
       metrics: {
         headcount: activeEmployees || 12,
         present: presentCount || (activeEmployees ? Math.round(activeEmployees * 0.75) : 8),
@@ -97,17 +131,24 @@ export async function GET() {
         pendingApprovalsCount: pendingLeaves.length + pendingWfh.length,
       },
       pendingApprovals: [
-        ...pendingLeaves.map((l) => ({
-          id: `leave_${l.id}`,
-          rawId: l.id,
-          kind: 'Leave',
-          who: l.who,
-          dept: l.dept,
-          type: l.type,
-          dates: `${new Date(l.from).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}${l.from !== l.to ? ' - ' + new Date(l.to).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : ''}`,
-          days: l.days,
-          reason: l.reason,
-        })),
+        ...pendingLeaves.map((l) => {
+          const lFrom = String(l.from).split('T')[0];
+          const lTo = String(l.to).split('T')[0];
+          const sandwichConflict = checkLeaveSandwichConflict(lFrom, lTo, dashSandwichMap);
+
+          return {
+            id: `leave_${l.id}`,
+            rawId: l.id,
+            kind: 'Leave',
+            who: l.who,
+            dept: l.dept,
+            type: l.type,
+            dates: `${new Date(l.from).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}${lFrom !== lTo ? ' - ' + new Date(l.to).toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : ''}`,
+            days: l.days,
+            reason: l.reason,
+            sandwichConflict: sandwichConflict.hasConflict ? sandwichConflict : null,
+          };
+        }),
         ...pendingWfh.map((w) => ({
           id: `wfh_${w.id}`,
           rawId: w.id,
