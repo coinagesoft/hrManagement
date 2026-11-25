@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Building2, CheckCircle2, PauseCircle, Users, Loader2 } from "lucide-react";
-import { Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge, Table, Td, Th, Progress } from "@/components/ui";
+import { Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge, Table, Td, Th, Progress, SectionLoader } from "@/components/ui";
 import { fmtDate } from "@/lib/dates";
 
 interface SuperStats {
@@ -44,6 +44,10 @@ export default function SuperDashboard() {
   const topMax = top.length > 0 ? Math.max(...top.map((c) => c.users), 1) : 1;
 
   const recent = stats?.recentCompanies ?? [];
+
+  if (loading) {
+    return <SectionLoader message="Loading platform overview..." size={48} className="py-24" />;
+  }
 
   return (
     <>

@@ -1,13 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check, Paperclip, AlertCircle } from "lucide-react";
-import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check, Paperclip, AlertCircle, Calendar } from "lucide-react";
+import { Avatar, Badge, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th, CoinHRLoader, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DEPARTMENTS } from "@/lib/mock";
 import { useRole } from "@/lib/role";
 import { fmtDate } from "@/lib/dates";
 import { cn } from "@/lib/cn";
+
+function getTodayIST(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+}
+
+function fmtDDMMYYYY(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const parts = dateStr.split("T")[0].split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return dateStr;
+}
 
 interface EmployeeItem {
   id: string;
@@ -19,6 +32,7 @@ interface EmployeeItem {
   title: string;
   role: "ADMIN" | "HR" | "EMPLOYEE";
   status: "Active" | "Inactive" | "Pending";
+  deactivationDate?: string | null;
   inviteToken?: string | null;
   joined: string;
 }
@@ -43,7 +57,8 @@ export default function EmployeesPage() {
   const [status, setStatus] = useState("All");
   const [modal, setModal] = useState<null | { editing: EmployeeItem | null }>(null);
   const [form, setForm] = useState(blank);
-  const [off, setOff] = useState<EmployeeItem | null>(null);
+  const [deactModal, setDeactModal] = useState<EmployeeItem | null>(null);
+  const [deactDate, setDeactDate] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
@@ -113,12 +128,27 @@ export default function EmployeesPage() {
     fetchEmployees();
   }, []);
 
-  const shown = list.filter(
-    (p) =>
-      (p.name + " " + p.email + " " + p.code).toLowerCase().includes(q.toLowerCase()) &&
-      (dept === "All" || p.dept === dept) &&
-      (status === "All" || p.status === status)
-  );
+  const shown = list.filter((p) => {
+    const today = getTodayIST();
+    const isScheduled = Boolean(p.deactivationDate && p.deactivationDate > today && p.status === "Active");
+    const isDeactivated = Boolean(p.status === "Inactive" || (p.deactivationDate && p.deactivationDate <= today));
+
+    const matchesQuery = (p.name + " " + p.email + " " + p.code).toLowerCase().includes(q.toLowerCase());
+    const matchesDept = dept === "All" || p.dept === dept;
+
+    let matchesStatus = true;
+    if (status === "Active") {
+      matchesStatus = p.status === "Active" && !isScheduled;
+    } else if (status === "Scheduled") {
+      matchesStatus = isScheduled;
+    } else if (status === "Pending") {
+      matchesStatus = p.status === "Pending";
+    } else if (status === "Inactive") {
+      matchesStatus = isDeactivated;
+    }
+
+    return matchesQuery && matchesDept && matchesStatus;
+  });
 
   function openAdd(r: EmployeeItem["role"] = "EMPLOYEE") {
     setFormError(null);
@@ -245,23 +275,64 @@ export default function EmployeesPage() {
     }
   }
 
-  async function deactivate(p: EmployeeItem) {
-    const nextStatus = p.status === "Active" ? "Inactive" : "Active";
+  function openDeactivate(p: EmployeeItem) {
+    setDeactModal(p);
+    const today = getTodayIST();
+    setDeactDate(p.deactivationDate || today);
+  }
+
+  async function handleConfirmDeactivate() {
+    if (!deactModal || !deactDate) return;
+    setSubmitting(true);
     try {
       const res = await fetch(apiBase, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: p.id, status: nextStatus }),
+        body: JSON.stringify({
+          id: deactModal.id,
+          deactivationDate: deactDate,
+        }),
       });
       const resJson = await res.json();
-      if (!res.ok) throw new Error(resJson.error || "Failed to update status");
+      if (!res.ok) throw new Error(resJson.error || "Failed to update deactivation date");
 
-      toast(`${p.name} ${nextStatus === "Active" ? "reactivated" : "deactivated"}`);
+      const today = getTodayIST();
+      if (deactDate <= today) {
+        toast(`${deactModal.name} deactivated successfully`);
+      } else {
+        toast(`${deactModal.name} scheduled for deactivation from ${fmtDDMMYYYY(deactDate)}`);
+      }
+
+      setDeactModal(null);
       fetchEmployees();
     } catch (err: any) {
-      toast(err.message || "Failed to update employee status");
+      toast(err.message || "Failed to deactivate employee", "warning");
     } finally {
-      setOff(null);
+      setSubmitting(false);
+    }
+  }
+
+  async function reactivateEmployee(p: EmployeeItem) {
+    setSubmitting(true);
+    try {
+      const res = await fetch(apiBase, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: p.id,
+          status: "Active",
+          deactivationDate: null,
+        }),
+      });
+      const resJson = await res.json();
+      if (!res.ok) throw new Error(resJson.error || "Failed to reactivate employee");
+
+      toast(`${p.name} reactivated. Full portal access restored.`);
+      fetchEmployees();
+    } catch (err: any) {
+      toast(err.message || "Failed to reactivate employee", "warning");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -282,7 +353,10 @@ export default function EmployeesPage() {
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedEmployees = shown.slice(startIndex, startIndex + pageSize);
 
-  const activeCount = list.filter((p) => p.status === "Active").length;
+  const activeCount = list.filter((p) => {
+    const today = getTodayIST();
+    return p.status === "Active" && (!p.deactivationDate || p.deactivationDate > today);
+  }).length;
 
   return (
     <>
@@ -321,17 +395,16 @@ export default function EmployeesPage() {
             ))}
           </select>
           <select className={`${inputCls} !w-auto`} value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option>All</option>
-            <option>Active</option>
-            <option>Pending</option>
-            <option>Inactive</option>
+            <option value="All">All statuses</option>
+            <option value="Active">Active</option>
+            <option value="Scheduled">Scheduled Deactivation</option>
+            <option value="Pending">Pending</option>
+            <option value="Inactive">Deactivated</option>
           </select>
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center p-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading employees from database...
-          </div>
+          <SectionLoader message="Loading employees from database..." />
         ) : shown.length === 0 ? (
           <Empty icon={Users} title="No employees match" desc="Try changing your search term or department filter." />
         ) : (
@@ -349,76 +422,138 @@ export default function EmployeesPage() {
               </tr>
             </thead>
             <tbody>
-              {paginatedEmployees.map((p) => (
-                <tr key={p.id}>
-                  <Td>
-                    <div className="flex items-center gap-3">
-                      <Avatar name={p.name} />
-                      <div>
-                        <p className="font-medium text-slate-900">{p.name}</p>
-                        <p className="text-xs text-slate-500">{p.email}</p>
+              {paginatedEmployees.map((p) => {
+                const today = getTodayIST();
+                const isScheduled = Boolean(p.deactivationDate && p.deactivationDate > today && p.status === "Active");
+                const isDeactivated = Boolean(p.status === "Inactive" || (p.deactivationDate && p.deactivationDate <= today));
+
+                return (
+                  <tr key={p.id}>
+                    <Td>
+                      <div className="flex items-center gap-3">
+                        <Avatar name={p.name} />
+                        <div>
+                          <p className="font-medium text-slate-900">{p.name}</p>
+                          <p className="text-xs text-slate-500">{p.email}</p>
+                        </div>
                       </div>
-                    </div>
-                  </Td>
-                  <Td className="font-mono text-xs">{p.code}</Td>
-                  <Td>
-                    <p>{p.dept}</p>
-                    <p className="text-xs text-slate-500">{p.title}</p>
-                  </Td>
-                  <Td>
-                    <StatusBadge
-                      s={p.role}
-                      label={p.role === "ADMIN" ? "Admin" : p.role === "HR" ? "HR" : "Employee"}
-                    />
-                  </Td>
-                  <Td>{fmtDate(p.joined)}</Td>
-                  <Td>
-                    <StatusBadge s={p.status} />
-                  </Td>
-                  <Td className="text-right">
-                    <div className="flex justify-end items-center gap-1">
-                      {p.status === "Pending" && (
-                        <>
-                          <Btn
-                            size="sm"
-                            variant="ghost"
-                            icon={resendingId === p.id ? Loader2 : Mail}
-                            disabled={resendingId === p.id}
-                            onClick={() => resendInvite(p)}
-                            title="Resend invitation email"
-                          >
-                            {resendingId === p.id ? "Sending..." : "Resend"}
-                          </Btn>
-                          {p.inviteToken && (
+                    </Td>
+                    <Td className="font-mono text-xs">{p.code}</Td>
+                    <Td>
+                      <p>{p.dept}</p>
+                      <p className="text-xs text-slate-500">{p.title}</p>
+                    </Td>
+                    <Td>
+                      <StatusBadge
+                        s={p.role}
+                        label={p.role === "ADMIN" ? "Admin" : p.role === "HR" ? "HR" : "Employee"}
+                      />
+                    </Td>
+                    <Td>{fmtDate(p.joined)}</Td>
+                    <Td>
+                      {isScheduled ? (
+                        <div className="flex flex-col items-start gap-0.5">
+                          <Badge tone="amber" dot>
+                            Deactivate from {fmtDDMMYYYY(p.deactivationDate)}
+                          </Badge>
+                          <span className="text-[10px] text-amber-700/80 font-medium pl-1">
+                            Active till exit date
+                          </span>
+                        </div>
+                      ) : isDeactivated ? (
+                        <div className="flex flex-col items-start gap-0.5">
+                          <StatusBadge s="Inactive" label="Deactivated" />
+                          {p.deactivationDate && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              From {fmtDDMMYYYY(p.deactivationDate)}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <StatusBadge s={p.status} />
+                      )}
+                    </Td>
+                    <Td className="text-right">
+                      <div className="flex justify-end items-center gap-1">
+                        {p.status === "Pending" && (
+                          <>
                             <Btn
                               size="sm"
                               variant="ghost"
-                              icon={copiedId === p.id ? Check : Copy}
-                              onClick={() => copyInviteLink(p)}
-                              title="Copy activation link"
+                              icon={resendingId === p.id ? Loader2 : Mail}
+                              disabled={resendingId === p.id}
+                              onClick={() => resendInvite(p)}
+                              title="Resend invitation email"
                             >
-                              {copiedId === p.id ? "Copied" : "Link"}
+                              {resendingId === p.id ? "Sending..." : "Resend"}
                             </Btn>
-                          )}
-                        </>
-                      )}
-                      <Btn size="sm" variant="ghost" icon={Pencil} onClick={() => openEdit(p)}>
-                        Edit
-                      </Btn>
-                      {p.role !== "ADMIN" && (
-                        <Btn
-                          size="sm"
-                          variant="ghost"
-                          icon={UserMinus}
-                          onClick={() => (p.status === "Active" ? setOff(p) : deactivate(p))}
-                        >
-                          {p.status === "Active" ? "Deactivate" : "Reactivate"}
+                            {p.inviteToken && (
+                              <Btn
+                                size="sm"
+                                variant="ghost"
+                                icon={copiedId === p.id ? Check : Copy}
+                                onClick={() => copyInviteLink(p)}
+                                title="Copy activation link"
+                              >
+                                {copiedId === p.id ? "Copied" : "Link"}
+                              </Btn>
+                            )}
+                          </>
+                        )}
+                        <Btn size="sm" variant="ghost" icon={Pencil} onClick={() => openEdit(p)}>
+                          Edit
                         </Btn>
-                      )}
-                    </div>
-                  </Td>
-                </tr>
-              ))}
+                        {p.role !== "ADMIN" && (
+                          <>
+                            {isScheduled ? (
+                              <>
+                                <Btn
+                                  size="sm"
+                                  variant="ghost"
+                                  icon={Calendar}
+                                  onClick={() => openDeactivate(p)}
+                                  title="Change effective deactivation date"
+                                >
+                                  Change Date
+                                </Btn>
+                                <Btn
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-amber-700 hover:text-amber-800"
+                                  onClick={() => reactivateEmployee(p)}
+                                  title="Cancel scheduled deactivation"
+                                >
+                                  Cancel
+                                </Btn>
+                              </>
+                            ) : isDeactivated ? (
+                              <Btn
+                                size="sm"
+                                variant="ghost"
+                                icon={UserPlus}
+                                onClick={() => reactivateEmployee(p)}
+                                title="Reactivate employee access"
+                              >
+                                Reactivate
+                              </Btn>
+                            ) : (
+                              <Btn
+                                size="sm"
+                                variant="ghost"
+                                icon={UserMinus}
+                                onClick={() => openDeactivate(p)}
+                                title="Deactivate employee with effective date"
+                              >
+                                Deactivate
+                              </Btn>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </Table>
 
@@ -518,7 +653,7 @@ export default function EmployeesPage() {
               <div className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-teal-700 shrink-0" />
                 <span>
-                  The employee will receive an activation email with active <b>Invitation & Onboarding Documents</b> attached.
+                  The employee will receive an activation email with active <b>Onboarding Documents</b> attached.
                 </span>
               </div>
               <a
@@ -527,7 +662,7 @@ export default function EmployeesPage() {
                 rel="noreferrer"
                 className="text-teal-800 hover:text-teal-950 font-semibold underline shrink-0 ml-2"
               >
-                Manage Docs &rarr;
+                Manage Onboarding Docs &rarr;
               </a>
             </div>
           )}
@@ -611,25 +746,76 @@ export default function EmployeesPage() {
         </form>
       </Modal>
 
-      {/* Deactivate confirmation modal */}
+      {/* Deactivate confirmation & effective date modal */}
       <Modal
-        open={!!off}
-        onClose={() => setOff(null)}
-        title="Deactivate employee?"
+        open={!!deactModal}
+        onClose={() => {
+          setDeactModal(null);
+          setDeactDate("");
+        }}
+        title={`Deactivate ${deactModal?.name || "employee"}?`}
+        desc="Specify the effective deactivation date. All historical attendance, leave, payroll, and document data remain permanently preserved."
         footer={
           <>
-            <Btn variant="outline" onClick={() => setOff(null)}>
+            <Btn
+              variant="outline"
+              onClick={() => {
+                setDeactModal(null);
+                setDeactDate("");
+              }}
+            >
               Cancel
             </Btn>
-            <Btn variant="danger" onClick={() => off && deactivate(off)}>
-              Deactivate
+            <Btn
+              variant="danger"
+              disabled={submitting || !deactDate}
+              onClick={handleConfirmDeactivate}
+            >
+              {submitting ? "Saving..." : "Confirm Deactivation"}
             </Btn>
           </>
         }
       >
-        <p className="text-sm text-slate-600">
-          <b>{off?.name}</b> will not be able to log in. Their historical attendance, leave, and payroll records are kept intact.
-        </p>
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950 flex items-start gap-2.5">
+            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="leading-relaxed space-y-1">
+              <p className="font-semibold text-amber-950">Data Retention & Access Policy</p>
+              <p className="text-amber-900/90">
+                • <b>Preserved Records</b>: Historical attendance, leave logs, payroll history, and documents are kept permanently intact in the system. Nothing is deleted.
+              </p>
+              <p className="text-amber-900/90">
+                • <b>Portal Access</b>: The employee can log in, view records, and mark attendance <b>until</b> the effective deactivation date.
+              </p>
+              <p className="text-amber-900/90">
+                • <b>Deactivation</b>: From that date onwards, login access and attendance punch will be automatically disabled.
+              </p>
+            </div>
+          </div>
+
+          <Field label="Effective Deactivation Date *">
+            <input
+              type="date"
+              required
+              className={inputCls}
+              value={deactDate}
+              onChange={(e) => setDeactDate(e.target.value)}
+            />
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              {(() => {
+                const today = getTodayIST();
+                if (!deactDate) return "Select the effective date.";
+                if (deactDate > today) {
+                  return `Scheduled: ${deactModal?.name} stays active with portal access until ${fmtDDMMYYYY(deactDate)}. After that date, they are deactivated.`;
+                }
+                if (deactDate === today) {
+                  return `Immediate: Deactivation takes effect today (${fmtDDMMYYYY(deactDate)}).`;
+                }
+                return `Retroactive: Account marked as deactivated as of ${fmtDDMMYYYY(deactDate)}.`;
+              })()}
+            </p>
+          </Field>
+        </div>
       </Modal>
     </>
   );

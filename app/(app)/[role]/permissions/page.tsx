@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Lock, RotateCcw, ShieldCheck, Loader2 } from "lucide-react";
-import { Btn, Card, Notice, PageHeader } from "@/components/ui";
+import { Btn, Card, Notice, PageHeader, SectionLoader } from "@/components/ui";
 import { Toggle, useToast } from "@/components/interactive";
 import { PERMS } from "@/lib/mock";
 
@@ -94,9 +94,7 @@ export default function PermissionsPage() {
       </div>
 
       {loading ? (
-        <div className="flex h-48 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-pine" />
-        </div>
+        <SectionLoader message="Loading permissions..." />
       ) : (
         <div className="space-y-6">
           {modules.map((m) => (

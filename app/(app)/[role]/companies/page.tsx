@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Building2, Check, Copy, Mail, Plus, Search, Loader2 } from "lucide-react";
-import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th, Notice } from "@/components/ui";
+import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th, Notice, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { fmtDate } from "@/lib/dates";
 
@@ -151,10 +151,7 @@ export default function CompaniesPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center p-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" />
-            Loading companies from database...
-          </div>
+          <SectionLoader message="Loading companies from database..." />
         ) : shown.length === 0 ? (
           <Empty icon={Building2} title="No companies found" desc="Try a different search term or add a company." />
         ) : (

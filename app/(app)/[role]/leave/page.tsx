@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, Plane, X, Loader2 } from "lucide-react";
-import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th, SectionLoader } from "@/components/ui";
 import { Field, Modal, Tabs, inputCls, useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 import EmployeeLeavePage from "@/app/employee/leave/page";
@@ -109,9 +109,7 @@ function TeamLeaveManagement() {
 
       <Card flush>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading leave requests..." />
         ) : (tab === "pending" ? pending : history).length === 0 ? (
           <Empty
             icon={Plane}

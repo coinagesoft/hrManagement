@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ScrollText, Search, Loader2 } from "lucide-react";
-import { Avatar, Badge, Card, Empty, PageHeader, Table, Td, Th, type Tone } from "@/components/ui";
+import { Avatar, Badge, Card, Empty, PageHeader, Table, Td, Th, SectionLoader, type Tone } from "@/components/ui";
 import { inputCls } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 
@@ -85,9 +85,7 @@ export default function AuditPage() {
 
       <Card flush>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading audit trail..." />
         ) : shown.length === 0 ? (
           <Empty
             icon={ScrollText}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, LogIn, LogOut, CheckCircle2, Wifi, WifiOff, House, Clock, XCircle } from "lucide-react";
-import { PageHeader, Card, Stat, Table, Badge, Td, Th, Btn } from "@/components/ui";
+import { PageHeader, Card, Stat, Table, Badge, Td, Th, Btn, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 
 interface AttendanceRecord {
@@ -301,9 +301,7 @@ export default function AttendancePage() {
 
       <Card flush>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading attendance history..." />
         ) : (
           <Table>
             <thead>

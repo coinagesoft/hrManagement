@@ -12,7 +12,7 @@ export async function GET(req: Request) {
 
     // Refresh user state from database
     const users = await query<any[]>(
-      `SELECT u.id, u.company_id, u.employee_code, u.name, u.email, u.role, u.department, u.title, u.phone, u.status, c.name AS company_name
+      `SELECT u.id, u.company_id, u.employee_code, u.name, u.email, u.role, u.department, u.title, u.phone, u.status, u.deactivation_date, c.name AS company_name
        FROM users u
        LEFT JOIN companies c ON u.company_id = c.id
        WHERE u.id = ?
@@ -20,11 +20,18 @@ export async function GET(req: Request) {
       [session.id]
     );
 
-    if (!users || users.length === 0 || users[0].status === 'Inactive') {
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const u = users?.[0];
+    const deactDate = u?.deactivation_date
+      ? (u.deactivation_date instanceof Date
+          ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(u.deactivation_date)
+          : String(u.deactivation_date).split('T')[0])
+      : null;
+
+    if (!users || users.length === 0 || u.status === 'Inactive' || (deactDate && todayStr >= deactDate)) {
       return NextResponse.json({ authenticated: false, user: null }, { status: 401 });
     }
 
-    const u = users[0];
     return NextResponse.json({
       authenticated: true,
       user: {

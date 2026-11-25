@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { CoinHRLoader } from "@/components/ui";
 
 export default function Login() {
   const router = useRouter();
@@ -149,7 +150,7 @@ export default function Login() {
             >
               {loading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <CoinHRLoader size={16} variant="spin" className="mr-2 text-white" />
                   Signing in...
                 </>
               ) : (

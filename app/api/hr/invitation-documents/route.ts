@@ -109,7 +109,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `${insertedDocs.length} invitation document(s) uploaded successfully`,
+        message: `${insertedDocs.length} onboarding document(s) uploaded successfully`,
         documents: insertedDocs,
       });
     }
@@ -209,10 +209,10 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: 'Invitation document removed successfully',
+      message: 'Onboarding document removed successfully',
     });
   } catch (error: any) {
-    console.error('Failed to delete invitation document:', error);
+    console.error('Failed to delete onboarding document:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
@@ -235,7 +235,7 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Document ${isActive ? 'enabled' : 'disabled'} for invitation attachments`,
+      message: `Document ${isActive ? 'enabled' : 'disabled'} for onboarding attachments`,
     });
   } catch (error: any) {
     console.error('Failed to update invitation document status:', error);

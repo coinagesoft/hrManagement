@@ -19,7 +19,7 @@ import {
   Layers,
   ArrowLeft,
 } from "lucide-react";
-import { Badge, Btn, Card, PageHeader } from "@/components/ui";
+import { Badge, Btn, Card, PageHeader, SectionLoader, CoinHRLoader } from "@/components/ui";
 import { useToast } from "@/components/interactive";
 import {
   BreadcrumbNode,
@@ -356,10 +356,7 @@ export default function EmployeeDocumentsPage() {
         {/* Explorer Workspace */}
         <div className="p-5 bg-white min-h-[380px]">
           {loading ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-2">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <p className="text-xs text-slate-500">Loading your files from database...</p>
-            </div>
+            <SectionLoader message="Loading your files from database..." />
           ) : activeFolder === null ? (
             /* ROOT FOLDER VIEW: Windows Folder Grid */
             <div>
@@ -829,7 +826,7 @@ export default function EmployeeDocumentsPage() {
                   className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/50 p-6 transition hover:bg-blue-100/50 disabled:opacity-50"
                 >
                   {uploading ? (
-                    <Loader2 className="h-8 w-8 text-blue-600 animate-spin mb-2" />
+                    <CoinHRLoader size={36} variant="fill" className="mb-2" />
                   ) : (
                     <Upload className="h-8 w-8 text-blue-600 mb-2" />
                   )}

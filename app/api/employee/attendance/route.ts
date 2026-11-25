@@ -155,6 +155,28 @@ export async function POST(req: Request) {
     const clientIp = getClientIp(req);
     const { dateStr: todayStr, timeStr, minutes: currentMinutes } = getIstNow();
 
+    // Check if employee is deactivated or today is on/after scheduled deactivation date
+    const [uRow] = await query<any[]>(
+      'SELECT status, deactivation_date FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+    const deactDate = uRow?.deactivation_date
+      ? (uRow.deactivation_date instanceof Date
+          ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(uRow.deactivation_date)
+          : String(uRow.deactivation_date).split('T')[0])
+      : null;
+
+    if (uRow && (uRow.status === 'Inactive' || (deactDate && todayStr >= deactDate))) {
+      const formattedDate = deactDate ? deactDate.split('-').reverse().join('-') : '';
+      return NextResponse.json({
+        success: false,
+        blocked: true,
+        error: `Attendance cannot be marked: Your account has been deactivated${
+          formattedDate ? ` effective from ${formattedDate}` : ''
+        }. Past attendance records remain securely stored.`,
+      }, { status: 403 });
+    }
+
     // Fetch company settings for shift, late cutoff, and working days
     const [settings] = await query<any[]>(
       'SELECT start_time, end_time, late_cutoff_time, grace_minutes, working_days FROM company_settings WHERE company_id = ? LIMIT 1',

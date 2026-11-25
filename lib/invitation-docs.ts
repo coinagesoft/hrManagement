@@ -38,3 +38,5 @@ export async function getCompanyInvitationAttachments(companyId: number): Promis
     return [];
   }
 }
+
+export { getCompanyInvitationAttachments as getCompanyOnboardingAttachments };

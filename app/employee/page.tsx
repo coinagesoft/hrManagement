@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CheckCircle2, Clock, FileWarning, Loader2, LogIn, LogOut, Calendar, Wifi, WifiOff, House, AlertTriangle, XCircle } from "lucide-react";
-import { PageHeader, Card, Stat, Btn } from "@/components/ui";
+import { PageHeader, Card, Stat, Btn, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { fmtINR } from "@/lib/dates";
 
@@ -187,9 +187,7 @@ export default function EmployeeHomePage() {
 
   if (loading) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-pine" />
-      </div>
+      <SectionLoader message="Loading employee workspace..." size={48} className="py-24" />
     );
   }
 

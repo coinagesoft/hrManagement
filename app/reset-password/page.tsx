@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { CheckCircle2, Lock, Loader2, ArrowLeft } from "lucide-react";
 import AuthFrame from "@/components/AuthFrame";
-import { Btn } from "@/components/ui";
+import { Btn, FullPageLoader, CoinHRLoader } from "@/components/ui";
 import { Field, inputCls } from "@/components/interactive";
 
 function ResetPasswordContent() {
@@ -80,10 +80,7 @@ function ResetPasswordContent() {
 
   if (verifying) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin text-pine" />
-        <p className="mt-4 text-sm text-slate-500">Validating password reset token...</p>
-      </div>
+      <FullPageLoader title="Validating password reset token..." subtitle="Verifying cryptographic token security." />
     );
   }
 
@@ -165,7 +162,7 @@ function ResetPasswordContent() {
         <Btn type="submit" disabled={submitting} className="w-full justify-center">
           {submitting ? (
             <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Saving password...
+              <CoinHRLoader size={16} variant="spin" className="mr-2 text-white" /> Saving password...
             </>
           ) : (
             "Update Password"
@@ -181,9 +178,7 @@ export default function ResetPasswordPage() {
     <AuthFrame>
       <Suspense
         fallback={
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-pine" />
-          </div>
+          <FullPageLoader title="Loading..." />
         }
       >
         <ResetPasswordContent />

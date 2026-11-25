@@ -228,3 +228,5 @@ export function Progress({ value, tone = "bg-pine" }: { value: number; tone?: st
     </div>
   );
 }
+
+export { CoinHRLoader, LogoLoader, FullPageLoader, SectionLoader } from "./CoinHRLoader";

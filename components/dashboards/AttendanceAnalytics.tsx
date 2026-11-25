@@ -5,9 +5,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
-  Loader2,
 } from "lucide-react";
-import { Avatar } from "@/components/ui";
+import { Avatar, CoinHRLoader } from "@/components/ui";
 
 export interface DayData {
   day: string;
@@ -717,7 +716,7 @@ export default function AttendanceAnalytics({
               )}
             </div>
           </div>
-          {navLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-rose-500" />}
+          {navLoading && <CoinHRLoader size={16} variant="spin" />}
         </div>
 
         {/* Legend + View Switcher */}

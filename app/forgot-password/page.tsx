@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowLeft, MailCheck, Loader2 } from "lucide-react";
 import AuthFrame from "@/components/AuthFrame";
-import { Btn } from "@/components/ui";
+import { Btn, CoinHRLoader } from "@/components/ui";
 import { Field, inputCls } from "@/components/interactive";
 
 export default function ForgotPage() {
@@ -87,7 +87,7 @@ export default function ForgotPage() {
             <Btn type="submit" disabled={loading} className="w-full justify-center">
               {loading ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Sending link...
+                  <CoinHRLoader size={16} variant="spin" className="mr-2 text-white" /> Sending link...
                 </>
               ) : (
                 "Send reset link"

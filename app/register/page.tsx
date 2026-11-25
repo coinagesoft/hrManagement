@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Loader2, CheckCircle2, ShieldCheck, Building2, Users, Briefcase } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Building2, Users, Briefcase } from "lucide-react";
+import { CoinHRLoader } from "@/components/ui";
 
 function calculateStrength(p: string) {
   let s = 0;
@@ -330,7 +331,7 @@ export default function Register() {
             >
               {loading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <CoinHRLoader size={16} variant="spin" className="mr-2 text-white" />
                   Creating account...
                 </>
               ) : (

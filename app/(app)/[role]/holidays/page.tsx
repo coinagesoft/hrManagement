@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PartyPopper, Plus, Trash2, Loader2 } from "lucide-react";
-import { Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DAYS_SHORT, fmtDate, parseISO } from "@/lib/dates";
 
@@ -93,9 +93,7 @@ export default function HolidaysPage() {
       />
       <Card>
         {loading ? (
-          <div className="flex items-center justify-center p-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading holidays from database...
-          </div>
+          <SectionLoader message="Loading holidays from database..." />
         ) : list.length === 0 ? (
           <Empty icon={PartyPopper} title="No holidays yet" desc="Add company or public holidays to the calendar." />
         ) : (

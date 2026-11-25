@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, X, Plane, House, Loader2, Search, Filter, Layers } from "lucide-react";
-import { Avatar, Badge, Btn, Card, Empty, PageHeader, Stat, StatusBadge, Table, Td, Th } from "@/components/ui";
+import Link from "next/link";
+import { Check, X, Plane, House, Loader2, Search, Filter, Layers, Settings } from "lucide-react";
+import { Avatar, Badge, Btn, Card, Empty, PageHeader, Stat, StatusBadge, Table, Td, Th, SectionLoader } from "@/components/ui";
 import { Field, Modal, Tabs, inputCls, useToast } from "@/components/interactive";
 
 interface LeaveItem {
@@ -148,6 +149,13 @@ export default function HrLeavesPage() {
       <PageHeader
         title="Leaves & WFH Management"
         desc="Review, approve, or reject employee leave and Work From Home applications. Approved records dynamically sync with employee balances and WiFi attendance rules."
+        actions={
+          <Link href="/admin/leave-policy">
+            <Btn variant="outline" icon={Settings}>
+              Leave Types & Policy
+            </Btn>
+          </Link>
+        }
       />
 
       {/* Top Stat Overview */}
@@ -229,9 +237,7 @@ export default function HrLeavesPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center p-16 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading records from database...
-          </div>
+          <SectionLoader message="Loading records from database..." />
         ) : tab === "leaves" ? (
           filteredLeaves.length === 0 ? (
             <Empty

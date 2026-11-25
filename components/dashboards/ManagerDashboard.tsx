@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Check, House, UserCheck, Users, UserX, X, Loader2, CheckCircle2, Banknote, Layers } from "lucide-react";
-import { Avatar, Badge, Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge, CoinHRLoader, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 import { fmtShort } from "@/lib/dates";
@@ -218,9 +218,7 @@ export default function ManagerDashboard() {
           />
 
           {loading ? (
-            <div className="flex items-center justify-center p-12 text-slate-400">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading pending requests...
-            </div>
+            <SectionLoader message="Loading pending requests..." />
           ) : rows.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">
               No pending approval requests. Your inbox is clear!

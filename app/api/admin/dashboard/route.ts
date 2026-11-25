@@ -32,14 +32,15 @@ export async function GET(request: Request) {
     const company = compRows || { id: companyId, name: 'Acme Technologies', code: 'ACM' };
 
     // 2. Headcount
+    const istToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
     const [counts] = await query<any[]>(`
       SELECT 
         COUNT(*) AS total,
-        COALESCE(SUM(CASE WHEN status = 'Active' THEN 1 ELSE 0 END), 0) AS active,
-        COALESCE(SUM(CASE WHEN status = 'Inactive' THEN 1 ELSE 0 END), 0) AS inactive
+        COALESCE(SUM(CASE WHEN status = 'Active' AND (deactivation_date IS NULL OR ? < deactivation_date) THEN 1 ELSE 0 END), 0) AS active,
+        COALESCE(SUM(CASE WHEN status = 'Inactive' OR (deactivation_date IS NOT NULL AND ? >= deactivation_date) THEN 1 ELSE 0 END), 0) AS inactive
       FROM users
       WHERE company_id = ?
-    `, [companyId]);
+    `, [istToday, istToday, companyId]);
 
     const activeEmployees = Number(counts?.active || 0);
 

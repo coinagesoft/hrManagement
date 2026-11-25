@@ -16,7 +16,7 @@ import {
   Calendar as CalendarIcon,
   AlertCircle,
 } from "lucide-react";
-import { Avatar, Badge, Btn, Card, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, PageHeader, StatusBadge, Table, Td, Th, CoinHRLoader, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DAYS_SHORT, MONTHS, pad } from "@/lib/dates";
 import { useRole } from "@/lib/role";
@@ -702,9 +702,7 @@ export default function AttendanceCalendarView() {
 
               {/* Attendance Table */}
               {loadingRoster ? (
-                <div className="flex items-center justify-center p-14 text-mute text-xs">
-                  <Loader2 className="h-4 w-4 animate-spin mr-2 text-pine" /> Loading attendance roster...
-                </div>
+                <SectionLoader message="Loading attendance roster..." />
               ) : filteredRoster.length === 0 ? (
                 <div className="p-12 text-center text-mute text-xs">
                   <Clock className="h-8 w-8 mx-auto text-line mb-2" />

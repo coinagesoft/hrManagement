@@ -24,7 +24,7 @@ import {
   Layers,
   Paperclip,
 } from "lucide-react";
-import { Avatar, Badge, Btn, Card, PageHeader } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, PageHeader, SectionLoader, CoinHRLoader } from "@/components/ui";
 import { useToast } from "@/components/interactive";
 import InvitationDocumentsManager from "@/components/InvitationDocumentsManager";
 import {
@@ -501,7 +501,7 @@ export default function DocumentsPage() {
                   : "bg-white text-teal-800 hover:bg-teal-50 border border-teal-200"
               }`}
             >
-              <Paperclip className="w-4 h-4" /> Invitation Documents
+              <Paperclip className="w-4 h-4" /> Onboarding Documents
             </button>
           </div>
 
@@ -677,10 +677,7 @@ export default function DocumentsPage() {
           {/* Explorer Workspace */}
           <div className="min-h-[460px] p-5 bg-white">
             {loading ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-2">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                <p className="text-xs text-slate-500">Loading document directories...</p>
-              </div>
+              <SectionLoader message="Loading document directories..." />
             ) : selectedEmployee === null ? (
               /* LEVEL 0: ALL EMPLOYEE FOLDERS */
               <div>
@@ -1249,7 +1246,7 @@ export default function DocumentsPage() {
                   className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-300 bg-blue-50/50 p-6 transition hover:bg-blue-100/50 disabled:opacity-50"
                 >
                   {uploading ? (
-                    <Loader2 className="h-8 w-8 text-blue-600 animate-spin mb-2" />
+                    <CoinHRLoader size={36} variant="fill" className="mb-2" />
                   ) : (
                     <Upload className="h-8 w-8 text-blue-600 mb-2" />
                   )}

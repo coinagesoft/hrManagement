@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, CheckCircle2, AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
 import AuthFrame from "@/components/AuthFrame";
-import { Btn, Progress } from "@/components/ui";
+import { Btn, Progress, CoinHRLoader, FullPageLoader } from "@/components/ui";
 import { Field, inputCls } from "@/components/interactive";
 
 function strength(p: string) {
@@ -106,11 +106,10 @@ function AcceptInviteContent() {
   if (loading) {
     return (
       <AuthFrame>
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-pine mb-4" />
-          <h2 className="text-lg font-semibold">Verifying your invitation...</h2>
-          <p className="text-sm text-slate-500 mt-1">Checking with the platform database.</p>
-        </div>
+        <FullPageLoader
+          title="Verifying your invitation..."
+          subtitle="Checking with the platform database."
+        />
       </AuthFrame>
     );
   }
@@ -233,7 +232,7 @@ function AcceptInviteContent() {
         <Btn type="submit" disabled={!ok || submitting} className="w-full mt-2">
           {submitting ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <CoinHRLoader size={16} variant="spin" className="mr-2 text-white" />
               Activating account...
             </>
           ) : roleLower === "admin" ? (
@@ -252,9 +251,7 @@ export default function AcceptInvitePage() {
     <Suspense
       fallback={
         <AuthFrame>
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-pine" />
-          </div>
+          <FullPageLoader title="Loading invitation..." />
         </AuthFrame>
       }
     >

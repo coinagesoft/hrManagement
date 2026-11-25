@@ -17,7 +17,7 @@ import {
   Shield,
   FileBox,
 } from "lucide-react";
-import { Btn, Card, Badge, Stat } from "@/components/ui";
+import { Btn, Card, Badge, Stat, SectionLoader } from "@/components/ui";
 import { useToast } from "@/components/interactive";
 
 export interface InvitationDoc {
@@ -70,8 +70,8 @@ export default function InvitationDocumentsManager() {
         setDocs(data.documents || []);
       }
     } catch (err: any) {
-      console.error("Failed to load invitation documents:", err);
-      toast.error("Failed to load invitation documents");
+      console.error("Failed to load onboarding documents:", err);
+      toast.error("Failed to load onboarding documents");
     } finally {
       setLoading(false);
     }
@@ -112,7 +112,7 @@ export default function InvitationDocumentsManager() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
 
-      toast.success(data.message || "Invitation documents uploaded successfully");
+      toast.success(data.message || "Onboarding documents uploaded successfully");
       setSelectedFiles([]);
       setCustomTitle("");
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -126,7 +126,7 @@ export default function InvitationDocumentsManager() {
   };
 
   const handleDelete = async (doc: InvitationDoc) => {
-    if (!confirm(`Are you sure you want to remove "${doc.title}" from invitation attachments?`)) {
+    if (!confirm(`Are you sure you want to remove "${doc.title}" from onboarding attachments?`)) {
       return;
     }
 
@@ -138,7 +138,7 @@ export default function InvitationDocumentsManager() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Delete failed");
 
-      toast.success("Document removed from invitation attachments");
+      toast.success("Document removed from onboarding attachments");
       await fetchDocs();
     } catch (err: any) {
       toast.error(err.message || "Failed to delete document");
@@ -161,7 +161,7 @@ export default function InvitationDocumentsManager() {
       setDocs((prev) =>
         prev.map((d) => (d.id === doc.id ? { ...d, isActive: newActive } : d))
       );
-      toast.success(`"${doc.title}" is now ${newActive ? "attached to" : "excluded from"} invitation emails`);
+      toast.success(`"${doc.title}" is now ${newActive ? "attached to" : "excluded from"} onboarding emails`);
     } catch (err: any) {
       toast.error(err.message || "Failed to update status");
     }
@@ -179,10 +179,10 @@ export default function InvitationDocumentsManager() {
           </div>
           <div>
             <p className="font-semibold text-teal-950 text-sm">
-              Automated Email Attachments for New Employee Invitations
+              Automated Email Attachments for New Employee Onboarding
             </p>
             <p className="text-teal-800 mt-0.5">
-              Every document uploaded and marked active here is <b>automatically attached</b> to the activation email whenever HR or Admin adds or invites a new employee.
+              Every document uploaded and marked active here is <b>automatically attached</b> to the activation email whenever HR or Admin adds or invites a new employee to onboarding.
             </p>
           </div>
         </div>
@@ -202,7 +202,7 @@ export default function InvitationDocumentsManager() {
       </div>
 
       {/* Upload Box Card */}
-      <Card title="Upload Invitation / Onboarding Documents">
+      <Card title="Upload Onboarding Documents">
         <div className="px-5 pt-3 text-xs text-slate-500">
           Select one or multiple files (PDF, Word, Joining Kit, Company Policies, Employee Handbook).
         </div>
@@ -288,24 +288,22 @@ export default function InvitationDocumentsManager() {
 
       {/* Documents List Card */}
       <Card
-        title="Configured Invitation Documents"
+        title="Configured Onboarding Documents"
         flush
       >
         <div className="px-5 pt-3 pb-2 text-xs text-slate-500 border-b border-slate-100">
-          All documents listed below are saved on the server. Active documents are dispatched as email attachments when inviting employees.
+          All documents listed below are saved on the server. Active documents are dispatched as email attachments when onboarding employees.
         </div>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading onboarding documents..." />
         ) : docs.length === 0 ? (
           <div className="py-12 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400 mb-3">
               <FileBox className="h-6 w-6" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-900">No invitation documents uploaded yet</h3>
+            <h3 className="text-sm font-semibold text-slate-900">No onboarding documents uploaded yet</h3>
             <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Upload company guidelines, NDAs, or welcome handbooks using the form above. They will be automatically attached to employee invitation emails.
+              Upload company guidelines, NDAs, or welcome handbooks using the form above. They will be automatically attached to employee onboarding emails.
             </p>
           </div>
         ) : (
@@ -323,7 +321,7 @@ export default function InvitationDocumentsManager() {
                       {doc.isActive ? (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
                           <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                          Attached to invites
+                          Attached to onboarding
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 border border-slate-200">
@@ -350,7 +348,7 @@ export default function InvitationDocumentsManager() {
                         ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
                         : "bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100"
                     }`}
-                    title={doc.isActive ? "Click to exclude from future emails" : "Click to include in future emails"}
+                    title={doc.isActive ? "Click to exclude from future onboarding emails" : "Click to include in future onboarding emails"}
                   >
                     {doc.isActive ? "✓ Active Attachment" : "Enable Attachment"}
                   </button>
@@ -388,3 +386,5 @@ export default function InvitationDocumentsManager() {
     </div>
   );
 }
+
+export { InvitationDocumentsManager as OnboardingDocumentsManager };

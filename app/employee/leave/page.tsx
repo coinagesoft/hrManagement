@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, PlusCircle, Trash2, XCircle, AlertCircle } from "lucide-react";
-import { PageHeader, Card, Stat, Table, Badge, Td, Th, Btn } from "@/components/ui";
+import { PageHeader, Card, Stat, Table, Badge, Td, Th, Btn, SectionLoader } from "@/components/ui";
 import { Modal, useToast } from "@/components/interactive";
 
 interface LeaveHistoryItem {
@@ -17,38 +17,32 @@ interface LeaveHistoryItem {
   status: string;
 }
 
-interface LeaveBalance {
-  Casual: {
-    credited: number;
-    used: number;
-    left: number;
-    perMonth: number;
-    carriedForward?: number;
-    currentMonthAccrual?: number;
-    formula?: string;
-    carryForwardEnabled?: boolean;
-  };
-  Sick: {
-    credited: number;
-    used: number;
-    left: number;
-    perMonth: number;
-    carriedForward?: number;
-    currentMonthAccrual?: number;
-    formula?: string;
-    carryForwardEnabled?: boolean;
-  };
+interface LeaveTypeBalance {
+  id: number;
+  name: string;
+  code: string;
+  isPaid: boolean;
+  cycleMonths: number;
+  quotaPerCycle: number;
+  annualTotal: number;
+  credited: number;
+  used: number;
+  left: number | string;
+  formula: string;
+  carryForwardEnabled?: boolean;
+  perMonth?: number;
 }
 
 export default function EmployeeLeavePage() {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
-  const [balance, setBalance] = useState<LeaveBalance | null>(null);
+  const [balance, setBalance] = useState<Record<string, any> | null>(null);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeBalance[]>([]);
   const [history, setHistory] = useState<LeaveHistoryItem[]>([]);
   const [selectedRejection, setSelectedRejection] = useState<LeaveHistoryItem | null>(null);
 
   // Form
-  const [kind, setKind] = useState("Casual");
+  const [kind, setKind] = useState("Casual Leave");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [half, setHalf] = useState(false);
@@ -60,8 +54,19 @@ export default function EmployeeLeavePage() {
       const res = await fetch("/api/employee/leave");
       const json = await res.json();
       if (json?.success) {
-        setBalance(json.balance);
-        setHistory(json.history);
+        setBalance(json.balance || {});
+        setLeaveTypes(json.leaveTypes || []);
+        setHistory(json.history || []);
+
+        if (json.leaveTypes && json.leaveTypes.length > 0) {
+          setKind((prev) => {
+            const exists = json.leaveTypes.some(
+              (lt: any) => lt.name === prev || lt.code === prev
+            );
+            if (exists) return prev;
+            return json.leaveTypes[0].name;
+          });
+        }
       }
     } catch (err) {
       console.error("Failed to load leave data:", err);
@@ -137,34 +142,55 @@ export default function EmployeeLeavePage() {
         sub="Your available quota balances, request submissions, and history."
       />
 
-      {/* Carry Forward Policy Information Banner */}
+      {/* Carry Forward & Accrual Policy Information Banner */}
       <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 text-xs text-emerald-900 flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-0.5">
           <p className="font-semibold text-emerald-950 flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-emerald-600 animate-pulse" />
-            Monthly Leave Accrual & Carry Forward Policy Active
+            Company Leave Accrual & Quota Policy Active
           </p>
           <p className="text-emerald-800">
-            Casual Leave accrues at <b>{balance?.Casual.perMonth ?? 1.5} days/month</b> and Sick Leave at <b>{balance?.Sick.perMonth ?? 1.0} days/month</b>. Unused leaves automatically carry forward into the next month.
+            {leaveTypes.filter((lt) => lt.isPaid).length > 0
+              ? leaveTypes
+                  .filter((lt) => lt.isPaid)
+                  .map((lt) => `${lt.name}: ${lt.quotaPerCycle} days / ${lt.cycleMonths === 1 ? 'month' : lt.cycleMonths === 4 ? '4-month quarter' : `${lt.cycleMonths}-month cycle`} (${lt.annualTotal} days/yr)`)
+                  .join(' · ')
+              : 'Configured leave types with automatic cycle credit accrual.'}
           </p>
         </div>
         <div className="rounded-lg bg-white border border-emerald-200 px-3 py-1.5 font-mono text-emerald-800 font-semibold shadow-xs">
-          CL Formula: {balance?.Casual.formula || `${balance?.Casual.carriedForward || 0} carried + 1.5 current`}
+          Cycle: {leaveTypes.find((lt) => lt.code === 'SL')?.formula || 'Active'}
         </div>
       </div>
 
       {/* Quota Balance Cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
-        <Stat
-          label="Casual leave (CL)"
-          value={`${balance?.Casual.left ?? 0} days left`}
-          note={balance?.Casual.formula ? `${balance.Casual.formula} · ${balance.Casual.used} used` : `1.5/mo · ${balance?.Casual.used ?? 0} used`}
-        />
-        <Stat
-          label="Sick leave (SL)"
-          value={`${balance?.Sick.left ?? 0} days left`}
-          note={balance?.Sick.formula ? `${balance.Sick.formula} · ${balance.Sick.used} used` : `1.0/mo · ${balance?.Sick.used ?? 0} used`}
-        />
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {leaveTypes.map((lt) => (
+          <Stat
+            key={lt.id || lt.code}
+            label={`${lt.name} (${lt.code})`}
+            value={lt.isPaid ? `${lt.left} days left` : "Unlimited"}
+            note={
+              lt.isPaid
+                ? `${lt.credited} credited YTD · ${lt.used} used · ${lt.annualTotal}/yr`
+                : `${lt.used} days taken (salary deduction)`
+            }
+          />
+        ))}
+        {leaveTypes.length === 0 && (
+          <>
+            <Stat
+              label="Casual leave (CL)"
+              value={`${balance?.Casual?.left ?? 0} days left`}
+              note={`${balance?.Casual?.used ?? 0} used`}
+            />
+            <Stat
+              label="Sick leave (SL)"
+              value={`${balance?.Sick?.left ?? 0} days left`}
+              note={`${balance?.Sick?.used ?? 0} used`}
+            />
+          </>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
@@ -181,9 +207,18 @@ export default function EmployeeLeavePage() {
                 value={kind}
                 onChange={(e) => setKind(e.target.value)}
               >
-                <option value="Casual">Casual leave (CL)</option>
-                <option value="Sick">Sick leave (SL)</option>
-                <option value="Work from home">Work from home</option>
+                {leaveTypes.map((lt) => (
+                  <option key={lt.id || lt.code} value={lt.name}>
+                    {lt.name} ({lt.code}) — {lt.isPaid ? `${lt.left} days available` : "Unpaid (LWP)"}
+                  </option>
+                ))}
+                {leaveTypes.length === 0 && (
+                  <>
+                    <option value="Casual">Casual leave (CL)</option>
+                    <option value="Sick">Sick leave (SL)</option>
+                  </>
+                )}
+                <option value="Work from home">Work from home (WFH)</option>
               </select>
             </div>
 
@@ -263,9 +298,7 @@ export default function EmployeeLeavePage() {
         {/* History Table */}
         <Card title="My request history" flush>
           {loading ? (
-            <div className="flex h-48 items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-pine" />
-            </div>
+            <SectionLoader message="Loading leave history..." />
           ) : (
             <Table>
               <thead>

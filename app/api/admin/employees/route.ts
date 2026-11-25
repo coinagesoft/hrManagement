@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     const status = searchParams.get('status') || 'All';
 
     let sql = `
-      SELECT id, company_id, employee_code, name, email, phone, role, department, title, status, joined_date, created_at,
+      SELECT id, company_id, employee_code, name, email, phone, role, department, title, status, joined_date, deactivation_date, created_at,
              (SELECT token FROM invitations WHERE user_id = users.id AND status = 'Pending' ORDER BY id DESC LIMIT 1) AS invite_token
       FROM users
       WHERE company_id = ?
@@ -56,19 +56,37 @@ export async function GET(request: Request) {
 
     const rows = await query<any[]>(sql, params);
 
-    const employees = rows.map((u) => ({
-      id: String(u.id),
-      code: u.employee_code || `EMP-${String(u.id).padStart(3, '0')}`,
-      name: u.name,
-      email: u.email,
-      phone: u.phone || '-',
-      dept: u.department || 'General',
-      title: u.title || (u.role === 'admin' ? 'Administrator' : u.role === 'hr' ? 'HR Manager' : 'Team Member'),
-      role: (u.role || 'employee').toUpperCase() as 'ADMIN' | 'HR' | 'EMPLOYEE',
-      status: u.status as 'Active' | 'Inactive' | 'Pending',
-      inviteToken: u.invite_token || null,
-      joined: u.joined_date ? new Date(u.joined_date).toISOString().split('T')[0] : '2026-01-01',
-    }));
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
+    const employees = rows.map((u) => {
+      const deactDate = u.deactivation_date
+        ? (u.deactivation_date instanceof Date
+            ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(u.deactivation_date)
+            : String(u.deactivation_date).split('T')[0])
+        : null;
+
+      let effectiveStatus = u.status as 'Active' | 'Inactive' | 'Pending';
+      if (effectiveStatus === 'Active' && deactDate && todayStr >= deactDate) {
+        effectiveStatus = 'Inactive';
+        // Asynchronously update in DB to keep persisted state synchronized
+        query("UPDATE users SET status = 'Inactive', updated_at = NOW() WHERE id = ?", [u.id]).catch(() => {});
+      }
+
+      return {
+        id: String(u.id),
+        code: u.employee_code || `EMP-${String(u.id).padStart(3, '0')}`,
+        name: u.name,
+        email: u.email,
+        phone: u.phone || '-',
+        dept: u.department || 'General',
+        title: u.title || (u.role === 'admin' ? 'Administrator' : u.role === 'hr' ? 'HR Manager' : 'Team Member'),
+        role: (u.role || 'employee').toUpperCase() as 'ADMIN' | 'HR' | 'EMPLOYEE',
+        status: effectiveStatus,
+        deactivationDate: deactDate,
+        inviteToken: u.invite_token || null,
+        joined: u.joined_date ? new Date(u.joined_date).toISOString().split('T')[0] : '2026-01-01',
+      };
+    });
 
     return NextResponse.json({ success: true, employees });
   } catch (error: any) {
@@ -358,11 +376,13 @@ export async function PATCH(request: Request) {
   try {
     const companyId = await resolveCompanyId(request);
     const body = await request.json();
-    const { id, name, email, phone, dept, title, role, status, joined } = body;
+    const { id, name, email, phone, dept, title, role, status, joined, deactivationDate } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Employee ID is required.' }, { status: 400 });
     }
+
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
     const updates: string[] = [];
     const values: any[] = [];
@@ -373,8 +393,52 @@ export async function PATCH(request: Request) {
     if (dept) { updates.push('department = ?'); values.push(dept); }
     if (title) { updates.push('title = ?'); values.push(title); }
     if (role) { updates.push('role = ?'); values.push(role.toLowerCase()); }
-    if (status) { updates.push('status = ?'); values.push(status); }
     if (joined) { updates.push('joined_date = ?'); values.push(joined); }
+
+    let auditAction: string | null = null;
+    let auditTone: string = 'blue';
+    let auditDetail: string = '';
+
+    if (deactivationDate !== undefined) {
+      if (deactivationDate) {
+        updates.push('deactivation_date = ?');
+        values.push(deactivationDate);
+
+        if (deactivationDate <= todayStr) {
+          updates.push("status = 'Inactive'");
+          auditAction = 'Employee deactivated';
+          auditTone = 'rose';
+          auditDetail = `Deactivated employee as of ${deactivationDate}. Portal access disabled.`;
+        } else {
+          updates.push("status = 'Active'");
+          auditAction = 'Deactivation scheduled';
+          auditTone = 'amber';
+          auditDetail = `Scheduled deactivation for ${deactivationDate}. Employee retains full portal access and attendance until that date.`;
+        }
+      } else {
+        // Clearing deactivation date / Reactivating
+        updates.push('deactivation_date = NULL');
+        updates.push("status = 'Active'");
+        auditAction = 'Employee reactivated';
+        auditTone = 'green';
+        auditDetail = 'Reactivated employee. Full portal access and active status restored.';
+      }
+    } else if (status) {
+      updates.push('status = ?');
+      values.push(status);
+      if (status === 'Active') {
+        updates.push('deactivation_date = NULL');
+        auditAction = 'Employee reactivated';
+        auditTone = 'green';
+        auditDetail = 'Reactivated employee. Full portal access and active status restored.';
+      } else if (status === 'Inactive') {
+        updates.push('deactivation_date = ?');
+        values.push(todayStr);
+        auditAction = 'Employee deactivated';
+        auditTone = 'rose';
+        auditDetail = `Deactivated employee as of today (${todayStr}).`;
+      }
+    }
 
     if (updates.length === 0) {
       return NextResponse.json({ error: 'No fields to update.' }, { status: 400 });
@@ -382,6 +446,16 @@ export async function PATCH(request: Request) {
 
     values.push(Number(id), companyId);
     await query(`UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = ? AND company_id = ?`, values);
+
+    if (auditAction) {
+      const [u] = await query<any[]>('SELECT name FROM users WHERE id = ? LIMIT 1', [Number(id)]);
+      const empName = u?.name || 'Employee';
+      await query(
+        `INSERT INTO audit_logs (company_id, user_id, user_name, action, tone, detail, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+        [companyId, Number(id), empName, auditAction, auditTone, `${empName}: ${auditDetail}`]
+      ).catch(() => {});
+    }
 
     return NextResponse.json({ success: true, message: 'Employee updated successfully.' });
   } catch (error: any) {
@@ -400,10 +474,12 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Employee ID is required.' }, { status: 400 });
     }
 
-    // Soft deactivate instead of hard delete
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
+    // Soft deactivate with deactivation date set to today instead of hard delete
     await query(
-      "UPDATE users SET status = 'Inactive', updated_at = NOW() WHERE id = ? AND company_id = ?",
-      [Number(id), companyId]
+      "UPDATE users SET status = 'Inactive', deactivation_date = ?, updated_at = NOW() WHERE id = ? AND company_id = ?",
+      [todayStr, Number(id), companyId]
     );
 
     return NextResponse.json({ success: true, message: 'Employee deactivated successfully.' });

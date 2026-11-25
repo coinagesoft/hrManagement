@@ -1,13 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, Wifi, Loader2, Clock, Calendar, ShieldCheck, AlertCircle } from "lucide-react";
-import { Btn, Card, CardHeader, PageHeader, Table, Td, Th } from "@/components/ui";
-import { Field, Tabs, inputCls, useToast } from "@/components/interactive";
+import { Plus, Trash2, Wifi, Loader2, Clock, Calendar, ShieldCheck, AlertCircle, Pencil } from "lucide-react";
+import { Btn, Card, CardHeader, PageHeader, Table, Td, Th, SectionLoader } from "@/components/ui";
+import { Field, Modal, Tabs, inputCls, useToast } from "@/components/interactive";
 import { DAYS_SHORT } from "@/lib/dates";
 import { cn } from "@/lib/cn";
 
 type Net = { id: string; label: string; ip: string; active: boolean };
+
+interface LeaveType {
+  id: number;
+  name: string;
+  code: string;
+  description: string;
+  category: "paid" | "unpaid";
+  cycleMonths: number;
+  quotaPerCycle: number;
+  annualTotal: number;
+  carryForward: boolean;
+  maxCarryForward: number;
+  isActive: boolean;
+}
 
 export default function SettingsPage() {
   const toast = useToast();
@@ -25,10 +39,23 @@ export default function SettingsPage() {
   const [halfDayHours, setHalfDayHours] = useState(4);
   const [days, setDays] = useState([1, 2, 3, 4, 5]);
 
-  // Leave policy states (Monthly accrual & Carry forward)
-  const [casualPerMonth, setCasualPerMonth] = useState(1.5);
-  const [sickPerMonth, setSickPerMonth] = useState(1.0);
-  const [carryForwardEnabled, setCarryForwardEnabled] = useState(true);
+  // Leave types & working days states
+  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
+  const [workingDays, setWorkingDays] = useState(22);
+
+  // Leave Type Modals & Form
+  const [addingType, setAddingType] = useState(false);
+  const [editingType, setEditingType] = useState<LeaveType | null>(null);
+  const [typeForm, setTypeForm] = useState({
+    name: "",
+    code: "",
+    description: "",
+    category: "paid" as "paid" | "unpaid",
+    cyclePreset: "4",
+    customMonths: 4,
+    quotaPerCycle: 2.0,
+    carryForward: true,
+  });
 
   const [wifi, setWifi] = useState(true);
   const [wfh, setWfh] = useState({ enabled: true, sameDay: true, limit: 4 });
@@ -36,12 +63,25 @@ export default function SettingsPage() {
   const [detectedIp, setDetectedIp] = useState("127.0.0.1");
   const [newNet, setNewNet] = useState({ label: "", ip: "" });
 
+  const fetchLeaveTypes = async () => {
+    try {
+      const res = await fetch("/api/admin/leave-types");
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.leaveTypes)) {
+        setLeaveTypes(data.leaveTypes);
+      }
+    } catch (err) {
+      console.error("Error loading leave types:", err);
+    }
+  };
+
   useEffect(() => {
     Promise.all([
       fetch("/api/admin/settings").then((res) => (res.ok ? res.json() : null)),
+      fetch("/api/admin/leave-types").then((res) => (res.ok ? res.json() : null)),
       fetch("/api/hr/leave-policy").then((res) => (res.ok ? res.json() : null)),
     ])
-      .then(([settingsData, leaveData]) => {
+      .then(([settingsData, typesData, leaveData]) => {
         if (settingsData?.success) {
           if (settingsData.currentClientIp) setDetectedIp(settingsData.currentClientIp);
           if (settingsData.profile?.name) setCompanyName(settingsData.profile.name);
@@ -66,10 +106,12 @@ export default function SettingsPage() {
           }
         }
 
+        if (typesData?.success && Array.isArray(typesData.leaveTypes)) {
+          setLeaveTypes(typesData.leaveTypes);
+        }
+
         if (leaveData?.success && leaveData.policy) {
-          setCasualPerMonth(Number(leaveData.policy.casual ?? 1.5));
-          setSickPerMonth(Number(leaveData.policy.sick ?? 1.0));
-          setCarryForwardEnabled(Boolean(leaveData.policy.carryForwardEnabled ?? true));
+          setWorkingDays(Number(leaveData.policy.workingDays ?? 22));
         }
       })
       .catch((err) => console.error("Error loading settings:", err))
@@ -141,20 +183,18 @@ export default function SettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save settings");
 
-      // 2. Save leave policy with monthly accrual and carry forward
+      // 2. Save leave policy with working days
       const leaveRes = await fetch("/api/hr/leave-policy", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          casual: casualPerMonth,
-          sick: sickPerMonth,
-          carryForwardEnabled,
+          workingDays,
         }),
       });
       const leaveData = await leaveRes.json();
       if (!leaveRes.ok) throw new Error(leaveData.error || "Failed to update leave policy");
 
-      toast("Settings & leave policy saved to database");
+      toast("Settings saved to database");
     } catch (err: any) {
       toast(err.message || "Failed to save settings");
     } finally {
@@ -204,6 +244,155 @@ export default function SettingsPage() {
     await save(updated);
   };
 
+  const getCycleMonths = (preset: string, custom: number, cat: string) => {
+    if (cat === "unpaid") return 1;
+    if (preset === "custom") return Math.max(1, Math.min(12, Number(custom) || 1));
+    return Number(preset) || 1;
+  };
+
+  const handleCreateLeaveType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!typeForm.name.trim()) return toast("Leave type name is required");
+    if (!typeForm.code.trim()) return toast("Leave type code is required");
+
+    setSaving(true);
+    try {
+      const cycleMonths = getCycleMonths(typeForm.cyclePreset, typeForm.customMonths, typeForm.category);
+      const quota = typeForm.category === "unpaid" ? 0 : Number(typeForm.quotaPerCycle) || 0;
+
+      const res = await fetch("/api/admin/leave-types", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: typeForm.name.trim(),
+          code: typeForm.code.trim().toUpperCase(),
+          description: typeForm.description.trim(),
+          category: typeForm.category,
+          cycleMonths,
+          quotaPerCycle: quota,
+          carryForward: typeForm.carryForward,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create leave type");
+
+      toast(json.message || "Leave type created");
+      setAddingType(false);
+      setTypeForm({
+        name: "",
+        code: "",
+        description: "",
+        category: "paid",
+        cyclePreset: "4",
+        customMonths: 4,
+        quotaPerCycle: 2.0,
+        carryForward: true,
+      });
+      await fetchLeaveTypes();
+    } catch (err: any) {
+      toast(err.message || "Creation failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditModal = (lt: LeaveType) => {
+    setEditingType(lt);
+    const isStandard = [1, 3, 4, 6, 12].includes(lt.cycleMonths);
+    setTypeForm({
+      name: lt.name,
+      code: lt.code,
+      description: lt.description || "",
+      category: lt.category,
+      cyclePreset: isStandard ? String(lt.cycleMonths) : "custom",
+      customMonths: lt.cycleMonths,
+      quotaPerCycle: lt.quotaPerCycle,
+      carryForward: lt.carryForward,
+    });
+  };
+
+  const handleUpdateLeaveType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingType) return;
+    if (!typeForm.name.trim()) return toast("Leave type name is required");
+    if (!typeForm.code.trim()) return toast("Leave type code is required");
+
+    setSaving(true);
+    try {
+      const cycleMonths = getCycleMonths(typeForm.cyclePreset, typeForm.customMonths, typeForm.category);
+      const quota = typeForm.category === "unpaid" ? 0 : Number(typeForm.quotaPerCycle) || 0;
+
+      const res = await fetch("/api/admin/leave-types", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingType.id,
+          name: typeForm.name.trim(),
+          code: typeForm.code.trim().toUpperCase(),
+          description: typeForm.description.trim(),
+          category: typeForm.category,
+          cycleMonths: typeForm.category === "unpaid" ? 1 : cycleMonths,
+          quotaPerCycle: quota,
+          carryForward: typeForm.carryForward,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update leave type");
+
+      toast("Leave type updated");
+      setEditingType(null);
+      await fetchLeaveTypes();
+    } catch (err: any) {
+      toast(err.message || "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleLeaveTypeActive = async (lt: LeaveType) => {
+    try {
+      const res = await fetch("/api/admin/leave-types", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: lt.id,
+          isActive: !lt.isActive,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Action failed");
+
+      toast(`"${lt.name}" is now ${!lt.isActive ? "active" : "inactive"}`);
+      await fetchLeaveTypes();
+    } catch (err: any) {
+      toast(err.message || "Action failed");
+    }
+  };
+
+  const deleteLeaveType = async (lt: LeaveType) => {
+    if (!confirm(`Are you sure you want to remove or deactivate "${lt.name}" (${lt.code})?`)) return;
+    try {
+      const res = await fetch(`/api/admin/leave-types?id=${lt.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Delete failed");
+
+      toast(json.message || "Leave type removed");
+      await fetchLeaveTypes();
+    } catch (err: any) {
+      toast(err.message || "Delete failed");
+    }
+  };
+
+  const modalCycleMonths = getCycleMonths(typeForm.cyclePreset, typeForm.customMonths, typeForm.category);
+  const modalAnnualTotal =
+    typeForm.category === "unpaid"
+      ? 0
+      : Math.round((12 / modalCycleMonths) * (Number(typeForm.quotaPerCycle) || 0) * 10) / 10;
+
   return (
     <>
       <PageHeader
@@ -227,9 +416,7 @@ export default function SettingsPage() {
       />
 
       {loading ? (
-        <div className="flex items-center justify-center p-12 text-slate-400">
-          <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading settings from database...
-        </div>
+        <SectionLoader message="Loading settings from database..." />
       ) : (
         <>
           {/* TAB 1: WORK HOURS & LATE MARK RULE */}
@@ -335,91 +522,163 @@ export default function SettingsPage() {
             </Card>
           )}
 
-          {/* TAB 2: LEAVE POLICY & CARRY FORWARD */}
+          {/* TAB 2: LEAVE TYPES & ACCRUAL POLICY */}
           {tab === "leaves" && (
-            <div className="grid gap-6 max-w-2xl">
+            <div className="grid gap-6 max-w-3xl">
               <Card>
                 <CardHeader
-                  title="Monthly leave accrual & carry forward policy"
-                  desc="Configure monthly leave credit rates and enable unused leave carry forward."
+                  title="Leave types & accrual"
+                  desc="Configure leave types, accrual cycle frequencies, and carry-forward rules."
+                  action={
+                    <Btn
+                      size="sm"
+                      icon={Plus}
+                      onClick={() => {
+                        setTypeForm({
+                          name: "",
+                          code: "",
+                          description: "",
+                          category: "paid",
+                          cyclePreset: "4",
+                          customMonths: 4,
+                          quotaPerCycle: 2.0,
+                          carryForward: true,
+                        });
+                        setAddingType(true);
+                      }}
+                    >
+                      Add leave type
+                    </Btn>
+                  }
                 />
-                <div className="p-5 space-y-4 text-xs">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="label mb-1 block font-medium text-slate-700">
-                        Casual Leave (CL) accrual per month (days)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="5"
-                        className={inputCls}
-                        value={casualPerMonth}
-                        onChange={(e) => setCasualPerMonth(Number(e.target.value))}
-                      />
-                      <span className="mt-1 block text-[11px] text-slate-400">
-                        E.g. 1.5 days added to employee balance every month
-                      </span>
-                    </div>
 
-                    <div>
-                      <label className="label mb-1 block font-medium text-slate-700">
-                        Sick Leave (SL) accrual per month (days)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        min="0"
-                        max="5"
-                        className={inputCls}
-                        value={sickPerMonth}
-                        onChange={(e) => setSickPerMonth(Number(e.target.value))}
-                      />
-                      <span className="mt-1 block text-[11px] text-slate-400">
-                        E.g. 1.0 day added to employee balance every month
-                      </span>
-                    </div>
-                  </div>
+                <div className="divide-y divide-slate-100">
+                  {leaveTypes.map((lt) => {
+                    const isPaid = lt.category === "paid";
+                    const cycleLabel =
+                      lt.cycleMonths === 1
+                        ? "Monthly"
+                        : lt.cycleMonths === 3
+                        ? "Quarterly (3 mo)"
+                        : lt.cycleMonths === 4
+                        ? "4-Month Quarter"
+                        : lt.cycleMonths === 6
+                        ? "Half-Yearly (6 mo)"
+                        : lt.cycleMonths === 12
+                        ? "Annual (12 mo)"
+                        : `${lt.cycleMonths}-Month Cycle`;
 
-                  {/* Carry Forward Toggle */}
-                  <div className="pt-3 border-t border-slate-100">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={carryForwardEnabled}
-                        onChange={(e) => setCarryForwardEnabled(e.target.checked)}
-                        className="h-4 w-4 accent-pine rounded"
-                      />
-                      <div>
-                        <span className="text-sm font-semibold text-slate-900 block">
-                          Carry forward unused monthly leaves to the next month (Unlimited)
-                        </span>
-                        <span className="text-xs text-slate-500 block mt-0.5">
-                          When checked, untaken leaves will accumulate automatically each month without any limit.
-                        </span>
+                    return (
+                      <div
+                        key={lt.id}
+                        className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 transition hover:bg-slate-50/60"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900 text-sm">{lt.name}</span>
+                            <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                              {lt.code}
+                            </span>
+                            <span
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                isPaid ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                              }`}
+                            >
+                              {isPaid ? "Paid" : "Unpaid"}
+                            </span>
+                            {!lt.isActive && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                                Inactive
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            {isPaid ? (
+                              <>
+                                <span>
+                                  <b>{lt.quotaPerCycle} days</b> / {cycleLabel.toLowerCase()}
+                                </span>
+                                <span>·</span>
+                                <span>
+                                  <b>{lt.annualTotal} days</b> / year
+                                </span>
+                                <span>·</span>
+                                <span>{lt.carryForward ? "Carry forward active" : "Resets per cycle"}</span>
+                              </>
+                            ) : (
+                              <span>No quota limit · Deducted from payroll</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleLeaveTypeActive(lt)}
+                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition ${
+                              lt.isActive
+                                ? "text-slate-600 hover:bg-slate-100"
+                                : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                            }`}
+                          >
+                            {lt.isActive ? "Deactivate" : "Activate"}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(lt)}
+                            className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-md transition"
+                            title="Edit leave type"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteLeaveType(lt)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition"
+                            title="Delete leave type"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
-                    </label>
-                  </div>
+                    );
+                  })}
 
-                  {/* Live Simulation / Example Card */}
-                  <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 mt-4">
-                    <h5 className="font-semibold text-blue-900 text-xs mb-1">
-                      💡 How Carry Forward Works for Your Employees:
-                    </h5>
-                    <ul className="space-y-1 text-blue-800 text-xs list-disc list-inside">
-                      <li>
-                        <b>Month 1:</b> Employee receives <b>{casualPerMonth} days</b> CL. If 0 leaves taken, balance carried forward = <b>{casualPerMonth} days</b>.
-                      </li>
-                      <li>
-                        <b>Month 2:</b> Employee receives <b>+{casualPerMonth} days</b> this month. Available balance ={" "}
-                        <b>{casualPerMonth} + {casualPerMonth} = {(casualPerMonth * 2).toFixed(1)} days</b>!
-                      </li>
-                      <li>
-                        <b>Month 3:</b> If employee used 1 day in Month 2, available balance ={" "}
-                        <b>{(casualPerMonth * 2 - 1).toFixed(1)} + {casualPerMonth} = {(casualPerMonth * 3 - 1).toFixed(1)} days</b>.
-                      </li>
-                    </ul>
+                  {leaveTypes.length === 0 && (
+                    <div className="p-8 text-center text-xs text-slate-400">
+                      No leave types configured. Click &quot;Add leave type&quot; above to create one.
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              {/* Payroll Standard Working Days Card */}
+              <Card>
+                <CardHeader
+                  title="Payroll calculation standard"
+                  desc="Standard monthly working days used to calculate per-day salary deduction for unpaid leaves."
+                />
+                <div className="p-5 flex items-center justify-between gap-4">
+                  <div>
+                    <label className="label mb-1 block font-medium text-slate-700">
+                      Standard working days / month
+                    </label>
+                    <span className="text-xs text-slate-400">
+                      Daily salary rate = Monthly CTC / {workingDays} days
+                    </span>
+                  </div>
+                  <div className="w-28">
+                    <input
+                      type="number"
+                      min={15}
+                      max={31}
+                      className={inputCls}
+                      value={workingDays}
+                      onChange={(e) => setWorkingDays(Number(e.target.value))}
+                    />
                   </div>
                 </div>
               </Card>
@@ -607,6 +866,332 @@ export default function SettingsPage() {
           )}
         </>
       )}
+      {/* ADD LEAVE TYPE MODAL */}
+      <Modal
+        open={addingType}
+        onClose={() => setAddingType(false)}
+        title="Add leave type"
+        desc="Create a leave type with accrual frequency and quota."
+        footer={
+          <>
+            <Btn variant="outline" onClick={() => setAddingType(false)}>
+              Cancel
+            </Btn>
+            <Btn type="submit" form="add-leave-form" disabled={saving}>
+              {saving ? "Creating..." : "Create leave type"}
+            </Btn>
+          </>
+        }
+      >
+        <form id="add-leave-form" className="space-y-4" onSubmit={handleCreateLeaveType}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Name" hint="e.g. Sick Leave, Casual Leave">
+              <input
+                type="text"
+                required
+                placeholder="Sick Leave"
+                className={inputCls}
+                value={typeForm.name}
+                onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Code" hint="e.g. SL, CL, LWP">
+              <input
+                type="text"
+                required
+                maxLength={8}
+                placeholder="SL"
+                className={`${inputCls} uppercase font-mono`}
+                value={typeForm.code}
+                onChange={(e) => setTypeForm({ ...typeForm, code: e.target.value.toUpperCase() })}
+              />
+            </Field>
+          </div>
+
+          <Field label="Category">
+            <div className="grid grid-cols-2 gap-3">
+              <label
+                className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs transition ${
+                  typeForm.category === "paid"
+                    ? "border-emerald-500 bg-emerald-50/60 font-semibold text-emerald-950"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="modal_cat"
+                  className="accent-emerald-600"
+                  checked={typeForm.category === "paid"}
+                  onChange={() => setTypeForm({ ...typeForm, category: "paid" })}
+                />
+                <div>
+                  <span className="block font-semibold">Paid leave</span>
+                  <span className="text-[11px] text-slate-500 font-normal">Accrues quota per cycle</span>
+                </div>
+              </label>
+
+              <label
+                className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs transition ${
+                  typeForm.category === "unpaid"
+                    ? "border-amber-500 bg-amber-50/60 font-semibold text-amber-950"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="modal_cat"
+                  className="accent-amber-600"
+                  checked={typeForm.category === "unpaid"}
+                  onChange={() => setTypeForm({ ...typeForm, category: "unpaid" })}
+                />
+                <div>
+                  <span className="block font-semibold">Unpaid (LWP)</span>
+                  <span className="text-[11px] text-slate-500 font-normal">Salary deducted</span>
+                </div>
+              </label>
+            </div>
+          </Field>
+
+          {typeForm.category === "paid" && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Cycle frequency" hint="Accrual interval">
+                  <select
+                    className={inputCls}
+                    value={typeForm.cyclePreset}
+                    onChange={(e) => setTypeForm({ ...typeForm, cyclePreset: e.target.value })}
+                  >
+                    <option value="1">Monthly (1 month)</option>
+                    <option value="3">Quarterly (3 months)</option>
+                    <option value="4">4-Month Quarter (4 months)</option>
+                    <option value="6">Half-Yearly (6 months)</option>
+                    <option value="12">Annual (12 months)</option>
+                    <option value="custom">Custom cycle...</option>
+                  </select>
+                </Field>
+
+                {typeForm.cyclePreset === "custom" ? (
+                  <Field label="Cycle length (months)">
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      className={inputCls}
+                      value={typeForm.customMonths}
+                      onChange={(e) => setTypeForm({ ...typeForm, customMonths: Number(e.target.value) })}
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Quota per cycle (days)" hint="e.g. 2.0 or 1.5">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      max="50"
+                      className={inputCls}
+                      value={typeForm.quotaPerCycle}
+                      onChange={(e) => setTypeForm({ ...typeForm, quotaPerCycle: Number(e.target.value) })}
+                    />
+                  </Field>
+                )}
+              </div>
+
+              {typeForm.cyclePreset === "custom" && (
+                <Field label="Quota per cycle (days)" hint="e.g. 2.0 or 1.5">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    max="50"
+                    className={inputCls}
+                    value={typeForm.quotaPerCycle}
+                    onChange={(e) => setTypeForm({ ...typeForm, quotaPerCycle: Number(e.target.value) })}
+                  />
+                </Field>
+              )}
+
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900 font-mono">
+                {typeForm.quotaPerCycle} days every {modalCycleMonths} month(s) = {modalAnnualTotal} days / year
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded accent-pine"
+                    checked={typeForm.carryForward}
+                    onChange={(e) => setTypeForm({ ...typeForm, carryForward: e.target.checked })}
+                  />
+                  <span>Carry forward unused leaves to next cycle</span>
+                </label>
+              </div>
+            </>
+          )}
+
+          <Field label="Description (optional)">
+            <input
+              type="text"
+              className={inputCls}
+              placeholder="e.g. 2 days per 4-month cycle"
+              value={typeForm.description}
+              onChange={(e) => setTypeForm({ ...typeForm, description: e.target.value })}
+            />
+          </Field>
+        </form>
+      </Modal>
+
+      {/* EDIT LEAVE TYPE MODAL */}
+      <Modal
+        open={!!editingType}
+        onClose={() => setEditingType(null)}
+        title={`Edit ${editingType?.name || "leave type"}`}
+        desc="Update quota, accrual cycle, or details."
+        footer={
+          <>
+            <Btn variant="outline" onClick={() => setEditingType(null)}>
+              Cancel
+            </Btn>
+            <Btn type="submit" form="edit-leave-form" disabled={saving}>
+              {saving ? "Saving..." : "Save changes"}
+            </Btn>
+          </>
+        }
+      >
+        <form id="edit-leave-form" className="space-y-4" onSubmit={handleUpdateLeaveType}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Name">
+              <input
+                type="text"
+                required
+                className={inputCls}
+                value={typeForm.name}
+                onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Code">
+              <input
+                type="text"
+                required
+                maxLength={8}
+                className={`${inputCls} uppercase font-mono`}
+                value={typeForm.code}
+                onChange={(e) => setTypeForm({ ...typeForm, code: e.target.value.toUpperCase() })}
+              />
+            </Field>
+          </div>
+
+          <Field label="Category">
+            <div className="grid grid-cols-2 gap-3">
+              <label
+                className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs transition ${
+                  typeForm.category === "paid"
+                    ? "border-emerald-500 bg-emerald-50/60 font-semibold text-emerald-950"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="edit_modal_cat"
+                  className="accent-emerald-600"
+                  checked={typeForm.category === "paid"}
+                  onChange={() => setTypeForm({ ...typeForm, category: "paid" })}
+                />
+                <span>Paid leave</span>
+              </label>
+
+              <label
+                className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs transition ${
+                  typeForm.category === "unpaid"
+                    ? "border-amber-500 bg-amber-50/60 font-semibold text-amber-950"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="edit_modal_cat"
+                  className="accent-amber-600"
+                  checked={typeForm.category === "unpaid"}
+                  onChange={() => setTypeForm({ ...typeForm, category: "unpaid" })}
+                />
+                <span>Unpaid (LWP)</span>
+              </label>
+            </div>
+          </Field>
+
+          {typeForm.category === "paid" && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Cycle frequency">
+                  <select
+                    className={inputCls}
+                    value={typeForm.cyclePreset}
+                    onChange={(e) => setTypeForm({ ...typeForm, cyclePreset: e.target.value })}
+                  >
+                    <option value="1">Monthly (1 month)</option>
+                    <option value="3">Quarterly (3 months)</option>
+                    <option value="4">4-Month Quarter (4 months)</option>
+                    <option value="6">Half-Yearly (6 months)</option>
+                    <option value="12">Annual (12 months)</option>
+                    <option value="custom">Custom cycle...</option>
+                  </select>
+                </Field>
+
+                {typeForm.cyclePreset === "custom" ? (
+                  <Field label="Cycle length (months)">
+                    <input
+                      type="number"
+                      min={1}
+                      max={12}
+                      className={inputCls}
+                      value={typeForm.customMonths}
+                      onChange={(e) => setTypeForm({ ...typeForm, customMonths: Number(e.target.value) })}
+                    />
+                  </Field>
+                ) : (
+                  <Field label="Quota per cycle (days)">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      max="50"
+                      className={inputCls}
+                      value={typeForm.quotaPerCycle}
+                      onChange={(e) => setTypeForm({ ...typeForm, quotaPerCycle: Number(e.target.value) })}
+                    />
+                  </Field>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-xs text-emerald-900 font-mono">
+                {typeForm.quotaPerCycle} days every {modalCycleMonths} month(s) = {modalAnnualTotal} days / year
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-800">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded accent-pine"
+                    checked={typeForm.carryForward}
+                    onChange={(e) => setTypeForm({ ...typeForm, carryForward: e.target.checked })}
+                  />
+                  <span>Carry forward unused leaves to next cycle</span>
+                </label>
+              </div>
+            </>
+          )}
+
+          <Field label="Description (optional)">
+            <input
+              type="text"
+              className={inputCls}
+              value={typeForm.description}
+              onChange={(e) => setTypeForm({ ...typeForm, description: e.target.value })}
+            />
+          </Field>
+        </form>
+      </Modal>
     </>
   );
 }

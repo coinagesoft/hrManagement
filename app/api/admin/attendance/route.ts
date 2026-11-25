@@ -122,9 +122,13 @@ export async function GET(request: Request) {
       LEFT JOIN attendance a ON a.user_id = u.id AND a.date = ?
       LEFT JOIN leave_requests lr ON lr.user_id = u.id AND lr.status = 'Approved' AND ? BETWEEN lr.start_date AND lr.end_date
       LEFT JOIN wfh_requests wr ON wr.user_id = u.id AND wr.status = 'Approved' AND wr.date = ?
-      WHERE u.company_id = ? AND u.status = 'Active' AND u.role != 'super'
+      WHERE u.company_id = ? AND u.role != 'super'
+        AND (
+          (u.status = 'Active' AND u.deactivation_date IS NULL)
+          OR (u.deactivation_date IS NOT NULL AND ? <= u.deactivation_date)
+        )
       ORDER BY u.name ASC
-    `, [date, date, date, companyId]);
+    `, [date, date, date, companyId, date]);
 
     const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Check, House, Plus, X, Loader2 } from "lucide-react";
-import { Avatar, Btn, Card, Empty, PageHeader, Progress, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Avatar, Btn, Card, Empty, PageHeader, Progress, StatusBadge, Table, Td, Th, SectionLoader } from "@/components/ui";
 import { Field, Modal, Tabs, inputCls, useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 
@@ -114,9 +114,7 @@ function Mine() {
 
       <Card flush title="My WFH requests">
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading WFH requests..." />
         ) : (
           <Table>
             <thead>
@@ -289,9 +287,7 @@ function Team() {
 
       <Card flush>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading WFH requests..." />
         ) : (tab === "pending" ? pending : history).length === 0 ? (
           <Empty
             icon={House}

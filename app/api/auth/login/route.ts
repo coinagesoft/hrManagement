@@ -44,9 +44,21 @@ export async function POST(request: Request) {
       );
     }
 
-    if (user.status === 'Inactive') {
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+    const deactDate = user.deactivation_date
+      ? (user.deactivation_date instanceof Date
+          ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(user.deactivation_date)
+          : String(user.deactivation_date).split('T')[0])
+      : null;
+
+    if (user.status === 'Inactive' || (deactDate && todayStr >= deactDate)) {
+      const formattedDate = deactDate ? deactDate.split('-').reverse().join('-') : '';
       return NextResponse.json(
-        { error: 'Your user account is inactive. Please contact your company administrator.' },
+        {
+          error: `Your account has been deactivated${
+            formattedDate ? ` effective from ${formattedDate}` : ''
+          }. Please contact your HR administrator.`,
+        },
         { status: 403 }
       );
     }

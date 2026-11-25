@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download, Eye, Loader2, FileText, CheckCircle2, Clock, Printer, Paperclip, ExternalLink } from "lucide-react";
-import { Badge, Btn, Card, PageHeader, Table, Td, Th } from "@/components/ui";
+import { Badge, Btn, Card, PageHeader, Table, Td, Th, SectionLoader } from "@/components/ui";
 import { Modal, useToast } from "@/components/interactive";
 import { fmtINR } from "@/lib/dates";
 
@@ -118,9 +118,7 @@ export default function PayslipsPage() {
 
       <Card flush>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading salary slips..." />
         ) : (
           <Table>
             <thead>

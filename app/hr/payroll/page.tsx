@@ -25,6 +25,8 @@ import {
   Badge,
   Btn,
   PageHeader,
+  CoinHRLoader,
+  SectionLoader,
 } from "@/components/ui";
 import { useToast } from "@/components/interactive";
 import { fmtINR } from "@/lib/dates";
@@ -829,9 +831,7 @@ export default function PayrollPage() {
 
       {/* 5. Main Content Area */}
       {loading ? (
-        <div className="flex h-56 items-center justify-center">
-          <Loader2 className="h-7 w-7 animate-spin text-pine" />
-        </div>
+        <SectionLoader message="Loading payroll records..." />
       ) : tab === "run" ? (
         /* TAB 1: MINIMALIST PAYROLL ROSTER (5 Consolidated Columns) */
         <div className="overflow-hidden rounded-xl border border-line bg-white shadow-2xs">
@@ -1200,7 +1200,7 @@ export default function PayrollPage() {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-teal-800 transition disabled:opacity-50"
               >
                 {uploadingSlip ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <CoinHRLoader size={14} variant="spin" className="text-white" />
                 ) : (
                   <CheckCircle2 className="w-3.5 h-3.5" />
                 )}

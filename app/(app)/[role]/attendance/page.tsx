@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Clock, Pencil, Search, Loader2 } from "lucide-react";
-import { Avatar, Badge, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th, SectionLoader } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 import { fmtDate, DAYS_SHORT, parseISO } from "@/lib/dates";
@@ -45,9 +45,7 @@ function Mine() {
       </div>
       <Card>
         {loading ? (
-          <div className="flex h-48 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-pine" />
-          </div>
+          <SectionLoader message="Loading attendance history..." />
         ) : (
           <Table>
             <thead>
@@ -221,9 +219,7 @@ function Team() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center p-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading attendance records...
-          </div>
+          <SectionLoader message="Loading attendance records..." />
         ) : shown.length === 0 ? (
           <Empty icon={Clock} title="No records found" desc="No attendance marked for this date or matching filter." />
         ) : (
