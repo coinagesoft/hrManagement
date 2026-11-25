@@ -130,8 +130,12 @@ export function Shell({ role, children }: { role: Role; children: React.ReactNod
       <div className="min-h-screen md:grid md:grid-cols-[232px_1fr]">
       <aside className="flex flex-col border-b border-line bg-white md:sticky md:top-0 md:h-screen md:border-b-0 md:border-r">
         <div className="flex items-center gap-2.5 px-5 py-4">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-pine text-sm font-bold text-white">H</span>
-          <span className="font-semibold">HR Platform</span>
+          <img
+            src="/logo.png"
+            alt="CoinHR"
+            className="h-8 w-8 rounded-lg object-contain bg-white shadow-xs ring-1 ring-black/5"
+          />
+          <span className="text-base font-bold tracking-tight text-ink">CoinHR</span>
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 pb-3 md:flex-col md:pb-0">
           {roleNav.map(([label, href]) => {

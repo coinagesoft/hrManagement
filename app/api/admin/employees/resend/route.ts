@@ -5,8 +5,15 @@ import { query } from '@/lib/db';
 import { sendEmployeeInvitationEmail } from '@/lib/email';
 import { getCompanyInvitationAttachments } from '@/lib/invitation-docs';
 
-async function resolveCompanyId(): Promise<number> {
-  const session = await getSessionUser();
+async function resolveCompanyId(request?: Request): Promise<number> {
+  if (request) {
+    const headerCompanyId = request.headers.get('x-company-id');
+    if (headerCompanyId) {
+      const parsed = parseInt(headerCompanyId, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  const session = await getSessionUser(request);
   if (session?.companyId) return session.companyId;
   const comps = await query<any[]>('SELECT id FROM companies ORDER BY id ASC LIMIT 1');
   return comps[0]?.id || 1;
@@ -14,7 +21,7 @@ async function resolveCompanyId(): Promise<number> {
 
 export async function POST(request: Request) {
   try {
-    const companyId = await resolveCompanyId();
+    const companyId = await resolveCompanyId(request);
     const body = await request.json();
     const { employeeId } = body;
 

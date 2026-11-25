@@ -145,7 +145,7 @@ export default function DocumentsPage() {
 
   const fetchEmployees = async () => {
     try {
-      const res = await fetch("/api/admin/employees");
+      const res = await fetch("/api/hr/employees");
       const json = await res.json();
       if (json?.success) {
         const empList: EmployeeOption[] = json.employees.map((e: any) => ({

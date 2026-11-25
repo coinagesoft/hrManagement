@@ -5,8 +5,8 @@
   --mute: #5b6475;
   --canvas: #f4f5f7;
   --line: #e2e5eb;
-  --pine: #0e6b5c;
-  --pine-soft: #e1f1ed;
+  --pine: #e11d48;
+  --pine-soft: #fff1f2;
   color-scheme: light;
 }
 
@@ -28,7 +28,7 @@ body { background: var(--canvas); color: var(--ink); font-family: var(--font-bod
   border-radius: .5rem; padding: .5rem .9rem; font-size: .875rem; font-weight: 500;
   border: 1px solid var(--pine); background: var(--pine); color: #fff; cursor: pointer;
 }
-.btn:hover { background: #0b574b; }
+.btn:hover { background: #be123c; border-color: #be123c; }
 .btn-ghost { background: #fff; color: var(--ink); border-color: var(--line); }
 .btn-ghost:hover { background: var(--canvas); }
 .btn-danger { background: #fff; color: #b42318; border-color: #f3c7c2; }

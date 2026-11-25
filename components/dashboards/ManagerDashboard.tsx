@@ -7,6 +7,11 @@ import { Avatar, Badge, Btn, Card, CardHeader, PageHeader, StatCard, StatusBadge
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { useRole } from "@/lib/role";
 import { fmtShort } from "@/lib/dates";
+import AttendanceAnalytics, {
+  WeekAnalyticsData,
+  MonthAnalyticsData,
+  EmployeeAnalyticsData,
+} from "./AttendanceAnalytics";
 
 interface DashboardData {
   company: { id: number; name: string; code: string };
@@ -33,6 +38,9 @@ interface DashboardData {
   outToday: { id: number; name: string; dept: string }[];
   upcomingHolidays: { id: number; name: string; date: string; kind: string }[];
   weekSummary: { d: string; p: number; w: number; l: number; a: number }[];
+  weekData?: WeekAnalyticsData;
+  monthData?: MonthAnalyticsData;
+  employeeData?: EmployeeAnalyticsData[];
   salaryStatus?: {
     month: string;
     cycleDate: number;
@@ -132,9 +140,6 @@ export default function ManagerDashboard() {
               <Btn variant="outline" icon={Users}>
                 Employees
               </Btn>
-            </Link>
-            <Link href={`/${role}/payroll`}>
-              <Btn>Run payroll</Btn>
             </Link>
           </div>
         }
@@ -312,48 +317,12 @@ export default function ManagerDashboard() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-3">
-          <CardHeader
-            title="Attendance this week"
-            desc="Headcount by day"
-            action={
-              <div className="flex gap-3 text-xs text-slate-500">
-                <span className="flex items-center gap-1">
-                  <i className="h-2 w-2 rounded-full bg-emerald-500" />
-                  Office
-                </span>
-                <span className="flex items-center gap-1">
-                  <i className="h-2 w-2 rounded-full bg-teal-400" />
-                  WFH
-                </span>
-                <span className="flex items-center gap-1">
-                  <i className="h-2 w-2 rounded-full bg-indigo-400" />
-                  Leave
-                </span>
-                <span className="flex items-center gap-1">
-                  <i className="h-2 w-2 rounded-full bg-rose-400" />
-                  Absent
-                </span>
-              </div>
-            }
-          />
-          <div className="flex h-56 items-end gap-6 px-6 pb-5 pt-6">
-            {week.map((w) => {
-              const sum = Math.max(w.p + w.w + w.l + w.a, 1);
-              return (
-                <div key={w.d} className="flex flex-1 flex-col items-center gap-2">
-                  <div className="flex w-full max-w-10 flex-col-reverse overflow-hidden rounded-t-md bg-slate-100" style={{ height: "180px" }}>
-                    <div style={{ height: `${(w.p / sum) * 100}%` }} className="bg-emerald-500" title={`Office: ${w.p}`} />
-                    <div style={{ height: `${(w.w / sum) * 100}%` }} className="bg-teal-400" title={`WFH: ${w.w}`} />
-                    <div style={{ height: `${(w.l / sum) * 100}%` }} className="bg-indigo-400" title={`Leave: ${w.l}`} />
-                    <div style={{ height: `${(w.a / sum) * 100}%` }} className="bg-rose-400" title={`Absent: ${w.a}`} />
-                  </div>
-                  <span className="text-xs font-medium text-slate-600">{w.d}</span>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+        <AttendanceAnalytics
+          initialWeekData={data?.weekData}
+          initialMonthData={data?.monthData}
+          initialEmployeeData={data?.employeeData}
+          fallbackWeekSummary={week}
+        />
       </div>
 
       {/* Reject Reason Modal Popup */}

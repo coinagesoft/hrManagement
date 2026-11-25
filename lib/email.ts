@@ -36,7 +36,7 @@ function getTransporter() {
   const user = process.env.SMTP_USER;
   const rawPass = process.env.SMTP_PASSWORD;
   const pass = host?.includes('gmail') && rawPass ? rawPass.replace(/\s+/g, '') : rawPass;
-  const from = process.env.SMTP_FROM || `"PeopleDesk HR" <${user || 'noreply@peopledesk.com'}>`;
+  const from = process.env.SMTP_FROM || `"CoinHR" <${user || 'noreply@coinhr.com'}>`;
 
   if (host && user && pass) {
     const transporter = nodemailer.createTransport({
@@ -66,13 +66,13 @@ export async function sendCompanyInvitationEmail({
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 20px; color: #172033; }
           .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e5eb; }
-          .header { background-color: #0e6b5c; padding: 32px 24px; text-align: center; color: #ffffff; }
+          .header { background: linear-gradient(135deg, #ff4b2b 0%, #e11d48 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
           .header h1 { margin: 0; font-size: 24px; font-weight: 600; }
           .content { padding: 32px 28px; line-height: 1.6; }
-          .badge { display: inline-block; background-color: #e1f1ed; color: #0e6b5c; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; margin-bottom: 16px; }
+          .badge { display: inline-block; background-color: #fff1f2; color: #e11d48; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; margin-bottom: 16px; }
           .btn-container { text-align: center; margin: 32px 0; }
-          .btn { display: inline-block; background-color: #0e6b5c; color: #ffffff !important; padding: 14px 28px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; }
-          .btn:hover { background-color: #0b574b; }
+          .btn { display: inline-block; background-color: #e11d48; color: #ffffff !important; padding: 14px 28px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; }
+          .btn:hover { background-color: #be123c; }
           .note { font-size: 13px; color: #5b6475; border-top: 1px solid #e2e5eb; padding-top: 20px; margin-top: 28px; }
           .link-box { word-break: break-all; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; font-size: 12px; color: #64748b; margin-top: 8px; }
         </style>
@@ -80,7 +80,7 @@ export async function sendCompanyInvitationEmail({
       <body>
         <div class="container">
           <div class="header">
-            <h1>HR Platform</h1>
+            <h1>CoinHR</h1>
           </div>
           <div class="content">
             <span class="badge">Platform Invitation</span>
@@ -108,7 +108,7 @@ export async function sendCompanyInvitationEmail({
       await mailer.transporter.sendMail({
         from: mailer.from,
         to: toEmail,
-        subject: `You have been invited to set up ${companyName} on HR Platform`,
+        subject: `You have been invited to set up ${companyName} on CoinHR`,
         html: htmlContent,
       });
 
@@ -139,13 +139,13 @@ export async function sendPasswordResetEmail({
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 20px; color: #172033; }
           .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e5eb; }
-          .header { background-color: #0e6b5c; padding: 32px 24px; text-align: center; color: #ffffff; }
+          .header { background: linear-gradient(135deg, #ff4b2b 0%, #e11d48 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
           .header h1 { margin: 0; font-size: 24px; font-weight: 600; }
           .content { padding: 32px 28px; line-height: 1.6; }
           .badge { display: inline-block; background-color: #fee2e2; color: #991b1b; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; margin-bottom: 16px; }
           .btn-container { text-align: center; margin: 32px 0; }
-          .btn { display: inline-block; background-color: #0e6b5c; color: #ffffff !important; padding: 14px 28px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; }
-          .btn:hover { background-color: #0b574b; }
+          .btn { display: inline-block; background-color: #e11d48; color: #ffffff !important; padding: 14px 28px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; }
+          .btn:hover { background-color: #be123c; }
           .note { font-size: 13px; color: #5b6475; border-top: 1px solid #e2e5eb; padding-top: 20px; margin-top: 28px; }
           .link-box { word-break: break-all; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; font-size: 12px; color: #64748b; margin-top: 8px; }
         </style>
@@ -153,7 +153,7 @@ export async function sendPasswordResetEmail({
       <body>
         <div class="container">
           <div class="header">
-            <h1>HR Platform</h1>
+            <h1>CoinHR</h1>
           </div>
           <div class="content">
             <span class="badge">Security Alert</span>
@@ -182,7 +182,7 @@ export async function sendPasswordResetEmail({
       await mailer.transporter.sendMail({
         from: mailer.from,
         to: toEmail,
-        subject: `Reset your HR Platform password`,
+        subject: `Reset your CoinHR password`,
         html: htmlContent,
       });
 
@@ -218,15 +218,15 @@ export async function sendEmployeeInvitationEmail({
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 20px; color: #172033; }
           .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e5eb; }
-          .header { background: linear-gradient(135deg, #0e6b5c 0%, #15806e 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
+          .header { background: linear-gradient(135deg, #ff4b2b 0%, #e11d48 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
           .header h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
           .header p { margin: 6px 0 0; font-size: 14px; opacity: 0.9; }
           .content { padding: 32px 28px; line-height: 1.6; }
-          .badge { display: inline-block; background-color: #e1f1ed; color: #0e6b5c; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; }
+          .badge { display: inline-block; background-color: #fff1f2; color: #e11d48; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; margin-bottom: 16px; }
           .welcome-title { margin: 0 0 12px; font-size: 20px; font-weight: 600; color: #0f172a; }
           .btn-container { text-align: center; margin: 28px 0; }
-          .btn { display: inline-block; background-color: #0e6b5c; color: #ffffff !important; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; box-shadow: 0 2px 4px rgba(14, 107, 92, 0.2); }
-          .btn:hover { background-color: #0b574b; }
+          .btn { display: inline-block; background-color: #e11d48; color: #ffffff !important; padding: 14px 32px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; box-shadow: 0 2px 4px rgba(225, 29, 72, 0.2); }
+          .btn:hover { background-color: #be123c; }
           .note { font-size: 13px; color: #64748b; border-top: 1px solid #e2e5eb; padding-top: 20px; margin-top: 28px; }
           .link-box { word-break: break-all; background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; font-size: 12px; color: #475569; margin-top: 8px; }
           .footer { background-color: #f8fafc; padding: 16px 24px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e5eb; }
@@ -235,13 +235,13 @@ export async function sendEmployeeInvitationEmail({
       <body>
         <div class="container">
           <div class="header">
-            <h1>PeopleDesk HR</h1>
+            <h1>CoinHR</h1>
             <p>Employee Portal & Workplace Management</p>
           </div>
           <div class="content">
             <span class="badge">${roleLabel} Invitation</span>
             <h2 class="welcome-title">Welcome to the team, ${employeeName}!</h2>
-            <p>You have been invited by your organization to join <strong>${companyName}</strong> on the PeopleDesk HR Portal.</p>
+            <p>You have been invited by your organization to join <strong>${companyName}</strong> on the CoinHR Portal.</p>
             
             <table style="width: 100%; margin: 20px 0; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; border-collapse: collapse; font-size: 14px;">
               <tr>
@@ -291,7 +291,7 @@ export async function sendEmployeeInvitationEmail({
             </div>
           </div>
           <div class="footer">
-            &copy; ${new Date().getFullYear()} ${companyName} &middot; Powered by PeopleDesk HR Platform
+            &copy; ${new Date().getFullYear()} ${companyName} &middot; Powered by CoinHR
           </div>
         </div>
       </body>
@@ -365,7 +365,7 @@ export async function sendLeaveAutoApprovedEmail({
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f5f7; margin: 0; padding: 20px; color: #172033; }
           .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
-          .header { background: linear-gradient(135deg, #0e6b5c 0%, #15806e 100%); padding: 28px 24px; text-align: center; color: #ffffff; }
+          .header { background: linear-gradient(135deg, #ff4b2b 0%, #e11d48 100%); padding: 28px 24px; text-align: center; color: #ffffff; }
           .header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
           .header p { margin: 4px 0 0; font-size: 13px; opacity: 0.9; }
           .content { padding: 28px 24px; line-height: 1.6; }
@@ -385,7 +385,7 @@ export async function sendLeaveAutoApprovedEmail({
       <body>
         <div class="container">
           <div class="header">
-            <h1>HR Management Portal</h1>
+            <h1>CoinHR</h1>
             <p>${companyName} &middot; Automatic Leave System</p>
           </div>
           <div class="content">
@@ -450,11 +450,11 @@ export async function sendLeaveAutoApprovedEmail({
             </div>
 
             <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
-              You can review all team attendance and approvals anytime in the <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/hr/leaves" style="color: #0e6b5c; text-decoration: underline; font-weight: 600;">HR Approvals Dashboard</a>.
+              You can review all team attendance and approvals anytime in the <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/hr/leaves" style="color: #e11d48; text-decoration: underline; font-weight: 600;">HR Approvals Dashboard</a>.
             </p>
           </div>
           <div class="footer">
-            &copy; ${new Date().getFullYear()} ${companyName} &middot; PeopleDesk HR Automated Attendance System
+            &copy; ${new Date().getFullYear()} ${companyName} &middot; CoinHR Automated Attendance System
           </div>
         </div>
       </body>
@@ -528,7 +528,7 @@ export async function sendRequestRejectedEmail({
         <div class="container">
           <div class="header">
             <h1>Request Status: Rejected</h1>
-            <p>${companyName} &middot; PeopleDesk HR Notification</p>
+            <p>${companyName} &middot; CoinHR Notification</p>
           </div>
           <div class="content">
             <p style="font-size: 15px; margin-top: 0;">Hi <strong>${employeeName}</strong>,</p>
@@ -567,7 +567,7 @@ export async function sendRequestRejectedEmail({
             </p>
           </div>
           <div class="footer">
-            &copy; ${new Date().getFullYear()} ${companyName} &middot; PeopleDesk HR Portal
+            &copy; ${new Date().getFullYear()} ${companyName} &middot; CoinHR Portal
           </div>
         </div>
       </body>

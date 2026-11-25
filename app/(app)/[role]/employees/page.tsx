@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check, Paperclip } from "lucide-react";
+import { Pencil, Plus, Search, UserMinus, UserPlus, Users, Loader2, Mail, Copy, Check, Paperclip, AlertCircle } from "lucide-react";
 import { Avatar, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DEPARTMENTS } from "@/lib/mock";
 import { useRole } from "@/lib/role";
 import { fmtDate } from "@/lib/dates";
+import { cn } from "@/lib/cn";
 
 interface EmployeeItem {
   id: string;
@@ -45,15 +46,30 @@ export default function EmployeesPage() {
   const [off, setOff] = useState<EmployeeItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    email?: string;
+    phone?: string;
+    title?: string;
+    joined?: string;
+  }>({});
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+
+  const apiBase = role === "hr" ? "/api/hr/employees" : "/api/admin/employees";
+
   const fetchEmployees = async () => {
     try {
-      const res = await fetch("/api/admin/employees");
+      const res = await fetch(apiBase);
       const data = await res.json();
       if (data?.success && data?.employees) {
         setList(data.employees);
+      } else if (!res.ok) {
+        console.error("Failed to load employees:", data?.error || res.statusText);
       }
     } catch (err) {
       console.error("Failed to load employees:", err);
@@ -65,7 +81,7 @@ export default function EmployeesPage() {
   const resendInvite = async (p: EmployeeItem) => {
     setResendingId(p.id);
     try {
-      const res = await fetch("/api/admin/employees/resend", {
+      const res = await fetch(`${apiBase}/resend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employeeId: p.id }),
@@ -106,12 +122,14 @@ export default function EmployeesPage() {
 
   function openAdd(r: EmployeeItem["role"] = "EMPLOYEE") {
     setFormError(null);
+    setFieldErrors({});
     setForm({ ...blank, role: r, dept: r === "HR" ? "HR" : "Engineering" });
     setModal({ editing: null });
   }
 
   function openEdit(p: EmployeeItem) {
     setFormError(null);
+    setFieldErrors({});
     setForm({
       name: p.name,
       email: p.email,
@@ -124,15 +142,52 @@ export default function EmployeesPage() {
     setModal({ editing: p });
   }
 
+  const validateEmployeeForm = (): boolean => {
+    const errs: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      title?: string;
+      joined?: string;
+    } = {};
+
+    if (!form.name || form.name.trim().length < 2) {
+      errs.name = "Full name is required (min 2 characters).";
+    }
+
+    if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      errs.email = "A valid work email is required.";
+    }
+
+    if (!form.title || form.title.trim().length < 2) {
+      errs.title = "Designation/Job title is required.";
+    }
+
+    if (!form.joined || !form.joined.trim()) {
+      errs.joined = "Joining date is required.";
+    }
+
+    if (form.phone && form.phone.trim().length > 0 && form.phone.trim().length < 7) {
+      errs.phone = "Phone number must be at least 7 digits if provided.";
+    }
+
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
+    if (!validateEmployeeForm()) {
+      toast("Please fix the validation errors before saving.", "warning");
+      return;
+    }
     setSubmitting(true);
     setFormError(null);
 
     try {
       if (modal?.editing) {
-        const res = await fetch("/api/admin/employees", {
+        const res = await fetch(apiBase, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -155,7 +210,7 @@ export default function EmployeesPage() {
 
         toast(resJson.message || "Employee updated successfully");
       } else {
-        const res = await fetch("/api/admin/employees", {
+        const res = await fetch(apiBase, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -193,7 +248,7 @@ export default function EmployeesPage() {
   async function deactivate(p: EmployeeItem) {
     const nextStatus = p.status === "Active" ? "Inactive" : "Active";
     try {
-      const res = await fetch("/api/admin/employees", {
+      const res = await fetch(apiBase, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: p.id, status: nextStatus }),
@@ -210,8 +265,22 @@ export default function EmployeesPage() {
     }
   }
 
-  const set = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const set = (k: keyof typeof blank) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [k]: e.target.value });
+    if (fieldErrors[k as keyof typeof fieldErrors]) {
+      setFieldErrors((prev) => ({ ...prev, [k]: undefined }));
+    }
+  };
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, dept, status, pageSize]);
+
+  const totalItems = shown.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedEmployees = shown.slice(startIndex, startIndex + pageSize);
 
   const activeCount = list.filter((p) => p.status === "Active").length;
 
@@ -266,7 +335,8 @@ export default function EmployeesPage() {
         ) : shown.length === 0 ? (
           <Empty icon={Users} title="No employees match" desc="Try changing your search term or department filter." />
         ) : (
-          <Table>
+          <>
+            <Table>
             <thead>
               <tr>
                 <Th>Employee</Th>
@@ -279,7 +349,7 @@ export default function EmployeesPage() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((p) => (
+              {paginatedEmployees.map((p) => (
                 <tr key={p.id}>
                   <Td>
                     <div className="flex items-center gap-3">
@@ -351,8 +421,59 @@ export default function EmployeesPage() {
               ))}
             </tbody>
           </Table>
-        )}
-      </Card>
+
+          {/* Pagination Toolbar */}
+          {totalItems > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-line text-xs text-mute bg-canvas/30">
+              <div className="flex items-center gap-3">
+                <span>
+                  Showing <span className="font-semibold text-ink">{startIndex + 1}</span>–
+                  <span className="font-semibold text-ink">
+                    {Math.min(startIndex + pageSize, totalItems)}
+                  </span>{" "}
+                  of <span className="font-semibold text-ink">{totalItems}</span> employees
+                </span>
+                <div className="flex items-center gap-1.5 pl-2 border-l border-line">
+                  <span>Rows:</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                    className="rounded border border-line bg-white px-2 py-0.5 text-xs text-ink cursor-pointer focus:outline-pine"
+                  >
+                    <option value={5}>5</option>
+                    <option value={8}>8</option>
+                    <option value={12}>12</option>
+                    <option value={20}>20</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-2.5 py-1 rounded border border-line bg-white text-ink text-xs font-medium hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                >
+                  Previous
+                </button>
+                <span className="px-2 font-medium text-ink">
+                  {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-2.5 py-1 rounded border border-line bg-white text-ink text-xs font-medium hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
 
       {/* Add / Edit Modal */}
       <Modal
@@ -410,27 +531,82 @@ export default function EmployeesPage() {
               </a>
             </div>
           )}
-          <Field label="Full name">
-            <input required className={inputCls} value={form.name} onChange={set("name")} />
+          <Field label="Full name *">
+            <input
+              required
+              className={cn(inputCls, fieldErrors.name && "border-red-400 focus:ring-red-400")}
+              value={form.name}
+              onChange={set("name")}
+              placeholder="e.g. John Doe"
+            />
+            {fieldErrors.name && (
+              <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" /> {fieldErrors.name}
+              </p>
+            )}
           </Field>
-          <Field label="Work email">
-            <input required type="email" className={inputCls} value={form.email} onChange={set("email")} />
+          <Field label="Work email *">
+            <input
+              required
+              type="email"
+              className={cn(inputCls, fieldErrors.email && "border-red-400 focus:ring-red-400")}
+              value={form.email}
+              onChange={set("email")}
+              placeholder="john@company.com"
+            />
+            {fieldErrors.email && (
+              <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" /> {fieldErrors.email}
+              </p>
+            )}
           </Field>
-          <Field label="Phone">
-            <input className={inputCls} value={form.phone} onChange={set("phone")} />
+          <Field label="Phone (Optional)">
+            <input
+              className={cn(inputCls, fieldErrors.phone && "border-red-400 focus:ring-red-400")}
+              value={form.phone}
+              onChange={set("phone")}
+              placeholder="e.g. +91 98765 43210"
+            />
+            {fieldErrors.phone && (
+              <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" /> {fieldErrors.phone}
+              </p>
+            )}
           </Field>
-          <Field label="Joining date">
-            <input type="date" className={inputCls} value={form.joined} onChange={set("joined")} />
+          <Field label="Joining date *">
+            <input
+              required
+              type="date"
+              className={cn(inputCls, fieldErrors.joined && "border-red-400 focus:ring-red-400")}
+              value={form.joined}
+              onChange={set("joined")}
+            />
+            {fieldErrors.joined && (
+              <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" /> {fieldErrors.joined}
+              </p>
+            )}
           </Field>
-          <Field label="Department">
+          <Field label="Department *">
             <select className={inputCls} value={form.dept} onChange={set("dept")}>
               {DEPARTMENTS.map((d) => (
                 <option key={d}>{d}</option>
               ))}
             </select>
           </Field>
-          <Field label="Designation">
-            <input required className={inputCls} value={form.title} onChange={set("title")} />
+          <Field label="Designation *">
+            <input
+              required
+              className={cn(inputCls, fieldErrors.title && "border-red-400 focus:ring-red-400")}
+              value={form.title}
+              onChange={set("title")}
+              placeholder="e.g. Software Engineer"
+            />
+            {fieldErrors.title && (
+              <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" /> {fieldErrors.title}
+              </p>
+            )}
           </Field>
         </form>
       </Modal>

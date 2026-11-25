@@ -1,6 +1,6 @@
 import { parseISO, pad } from "./dates";
 
-export const BRAND = "PeopleDesk";
+export const BRAND = "CoinHR";
 export const COMPANY = "Acme Technologies Pvt Ltd";
 
 export type Person = {

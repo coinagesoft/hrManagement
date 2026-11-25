@@ -12,12 +12,14 @@ import {
   Pencil,
   Search,
   Users,
-  Wifi,
   Layers,
+  Calendar as CalendarIcon,
+  AlertCircle,
 } from "lucide-react";
-import { Avatar, Badge, Btn, Card, Empty, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
+import { Avatar, Badge, Btn, Card, PageHeader, StatusBadge, Table, Td, Th } from "@/components/ui";
 import { Field, Modal, inputCls, useToast } from "@/components/interactive";
 import { DAYS_SHORT, MONTHS, pad } from "@/lib/dates";
+import { useRole } from "@/lib/role";
 import { cn } from "@/lib/cn";
 import {
   calculateSandwichBlocks,
@@ -78,13 +80,23 @@ interface TeamRow {
 function formatSelectedDay(s: string) {
   if (!s) return "";
   const [y, m, d] = s.split("-").map(Number);
-  const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(y, m - 1, d).getDay()];
+  const dayName = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ][new Date(y, m - 1, d).getDay()];
   const monthName = MONTHS[m - 1] || "";
   return `${dayName}, ${d} ${monthName} ${y}`;
 }
 
 export default function AttendanceCalendarView() {
+  const role = useRole();
   const toast = useToast();
+  const apiAttendanceBase = role === "hr" ? "/api/hr/attendance" : "/api/admin/attendance";
 
   // Mode: "split" = Interactive Split View, "full" = Full Month Calendar View
   const [viewMode, setViewMode] = useState<"split" | "full">("split");
@@ -110,18 +122,28 @@ export default function AttendanceCalendarView() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  // Correction Modal
+  // Pagination for Daily Attendance Roster
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(7); // 7 items fits neatly alongside mini calendar
+
+  // Correction Modal & Form Validation
   const [correcting, setCorrecting] = useState<TeamRow | null>(null);
   const [correctForm, setCorrectForm] = useState({ checkIn: "09:30", checkOut: "18:30", reason: "" });
+  const [correctErrors, setCorrectErrors] = useState<{ checkIn?: string; checkOut?: string; reason?: string }>({});
   const [savingCorrection, setSavingCorrection] = useState(false);
 
-  // Initialize today's date safely in useEffect (avoids Next.js prerender date warnings)
+  // Initialize today's date safely in useEffect
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
     setSelectedDate(today);
     const [y, m] = today.split("-").map(Number);
     setYm({ y, m: m - 1 });
   }, []);
+
+  // Reset pagination to page 1 whenever date, search query, or status filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [selectedDate, searchQuery, statusFilter, pageSize]);
 
   // Fetch month calendar events (holidays, leaves, wfh, attendance stats, sandwich blocks)
   const fetchMonthEvents = async (year: number, monthIndex: number) => {
@@ -133,7 +155,6 @@ export default function AttendanceCalendarView() {
         const hols = json.holidays || [];
         setHolidays(hols);
 
-        // Calculate sandwich blocks for this year and holiday calendar
         const { blocks: sBlocks, dateMap: sMap } = calculateSandwichBlocks(hols, year);
         setSandwichBlocks(sBlocks);
         setSandwichDateMap(sMap);
@@ -172,13 +193,16 @@ export default function AttendanceCalendarView() {
   const fetchDateRoster = async (dateStr: string) => {
     setLoadingRoster(true);
     try {
-      const res = await fetch(`/api/admin/attendance?date=${dateStr}`);
+      const res = await fetch(`${apiAttendanceBase}?date=${dateStr}`);
       const data = await res.json();
       if (data?.success && data?.roster) {
         setRoster(data.roster);
+      } else {
+        setRoster([]);
       }
     } catch (err) {
       console.error("Failed to load attendance roster:", err);
+      setRoster([]);
     } finally {
       setLoadingRoster(false);
     }
@@ -194,7 +218,7 @@ export default function AttendanceCalendarView() {
     }
   }, [selectedDate]);
 
-  // Calendar math
+  // Calendar calculations
   const firstDayOfWeek = new Date(ym.y, ym.m, 1).getDay(); // 0 = Sun
   const totalDaysInMonth = new Date(ym.y, ym.m + 1, 0).getDate();
 
@@ -215,11 +239,11 @@ export default function AttendanceCalendarView() {
     setSelectedDate(today);
   };
 
-  // Export full month attendance to Excel (CSV with UTF-8 BOM)
+  // Export full month attendance to CSV
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const res = await fetch(`/api/admin/attendance?export=true&year=${ym.y}&monthNum=${ym.m + 1}`);
+      const res = await fetch(`${apiAttendanceBase}?export=true&year=${ym.y}&monthNum=${ym.m + 1}`);
       const data = await res.json();
       if (!data?.success || !data?.records) {
         throw new Error("No attendance records found for this month");
@@ -314,19 +338,64 @@ export default function AttendanceCalendarView() {
   const countBy = (st: string) => roster.filter((r) => r.status === st).length;
   const wfhCount = roster.filter((r) => r.mode === "WFH").length;
 
+  // Pagination calculation
+  const totalItems = filteredRoster.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedRoster = filteredRoster.slice(startIndex, startIndex + pageSize);
+
+  // Validate form fields for attendance correction
+  const validateCorrectionForm = (): boolean => {
+    const errs: { checkIn?: string; checkOut?: string; reason?: string } = {};
+
+    if (!correctForm.checkIn || !correctForm.checkIn.trim()) {
+      errs.checkIn = "Check-in time is required.";
+    }
+
+    if (!correctForm.checkOut || !correctForm.checkOut.trim()) {
+      errs.checkOut = "Check-out time is required.";
+    }
+
+    if (correctForm.checkIn && correctForm.checkOut) {
+      const [inH, inM] = correctForm.checkIn.split(":").map(Number);
+      const [outH, outM] = correctForm.checkOut.split(":").map(Number);
+      const inMinutes = inH * 60 + inM;
+      const outMinutes = outH * 60 + outM;
+
+      if (outMinutes <= inMinutes) {
+        errs.checkOut = "Check-out time must be later than check-in time.";
+      }
+    }
+
+    if (!correctForm.reason || !correctForm.reason.trim()) {
+      errs.reason = "Adjustment reason is required.";
+    } else if (correctForm.reason.trim().length < 4) {
+      errs.reason = "Reason must be at least 4 characters.";
+    }
+
+    setCorrectErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   const handleSaveCorrection = async () => {
     if (!correcting) return;
+    if (!validateCorrectionForm()) {
+      toast("Please fix the validation errors before saving.", "warning");
+      return;
+    }
+
     setSavingCorrection(true);
     try {
-      const res = await fetch("/api/admin/attendance", {
+      const res = await fetch(apiAttendanceBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId: correcting.userId,
           date: selectedDate,
-          checkIn: correctForm.checkIn,
-          checkOut: correctForm.checkOut,
-          notes: correctForm.reason,
+          checkIn: correctForm.checkIn.trim(),
+          checkOut: correctForm.checkOut.trim(),
+          notes: correctForm.reason.trim(),
           status: "Present",
           mode: correcting.mode === "-" ? "Office" : correcting.mode,
         }),
@@ -335,45 +404,52 @@ export default function AttendanceCalendarView() {
       const resJson = await res.json();
       if (!res.ok) throw new Error(resJson.error || "Failed to update attendance");
 
-      toast("Punch time corrected and logged in audit trail");
+      toast("Punch time corrected and logged in audit trail", "success");
       setCorrecting(null);
+      setCorrectErrors({});
       await fetchDateRoster(selectedDate);
     } catch (err: any) {
-      toast(err.message || "Failed to save correction");
+      toast(err.message || "Failed to save correction", "error");
     } finally {
       setSavingCorrection(false);
     }
   };
 
+  const todayStr = new Date().toISOString().split("T")[0];
+
   return (
     <>
       <PageHeader
         title="Attendance & Calendar"
-        desc="Interactive company calendar, daily employee presenty roster, and monthly attendance exports."
+        desc="Daily employee roster, interactive company calendar, and monthly attendance logs."
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {/* View Mode Toggle */}
-            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* View Mode Toggle Pill */}
+            <div className="inline-flex rounded-lg border border-line bg-canvas p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode("split")}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer",
-                  viewMode === "split" ? "bg-pine text-white" : "text-slate-600 hover:text-slate-900"
+                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition cursor-pointer",
+                  viewMode === "split"
+                    ? "bg-white text-ink shadow-2xs font-semibold"
+                    : "text-mute hover:text-ink hover:bg-white/50"
                 )}
               >
-                <Columns className="h-3.5 w-3.5" />
+                <Columns className="h-3.5 w-3.5 text-mute" />
                 <span>Roster & Mini</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode("full")}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition cursor-pointer",
-                  viewMode === "full" ? "bg-pine text-white" : "text-slate-600 hover:text-slate-900"
+                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition cursor-pointer",
+                  viewMode === "full"
+                    ? "bg-white text-ink shadow-2xs font-semibold"
+                    : "text-mute hover:text-ink hover:bg-white/50"
                 )}
               >
-                <LayoutGrid className="h-3.5 w-3.5" />
+                <LayoutGrid className="h-3.5 w-3.5 text-mute" />
                 <span>Full Calendar</span>
               </button>
             </div>
@@ -384,8 +460,9 @@ export default function AttendanceCalendarView() {
               icon={exporting ? Loader2 : Download}
               onClick={handleExportExcel}
               disabled={exporting}
+              className="text-xs font-medium"
             >
-              {exporting ? "Preparing Excel..." : `Export ${MONTHS[ym.m]} to Excel`}
+              {exporting ? "Preparing..." : "Export CSV"}
             </Btn>
           </div>
         }
@@ -393,20 +470,20 @@ export default function AttendanceCalendarView() {
 
       {/* VIEW MODE 1: Split View (Interactive Mini Calendar + Daily Roster) */}
       {viewMode === "split" && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
           {/* Left Column: Interactive Mini Calendar & Holidays */}
           <div className="lg:col-span-5 space-y-4">
             <Card className="p-4 sm:p-5">
               {/* Month Navigation */}
-              <div className="flex items-center justify-between mb-4">
-                <span className="font-semibold text-slate-900 text-sm">
+              <div className="flex items-center justify-between mb-3.5">
+                <span className="font-semibold text-ink text-sm tracking-tight">
                   {MONTHS[ym.m]} {ym.y}
                 </span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={handlePrevMonth}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    className="p-1.5 rounded-md border border-line text-mute hover:text-ink hover:bg-canvas transition cursor-pointer"
                     title="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -414,14 +491,14 @@ export default function AttendanceCalendarView() {
                   <button
                     type="button"
                     onClick={handleJumpToday}
-                    className="px-2 py-1 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer"
+                    className="px-2 py-1 text-xs font-medium rounded-md border border-line text-mute hover:text-ink hover:bg-canvas transition cursor-pointer"
                   >
                     Today
                   </button>
                   <button
                     type="button"
                     onClick={handleNextMonth}
-                    className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+                    className="p-1.5 rounded-md border border-line text-mute hover:text-ink hover:bg-canvas transition cursor-pointer"
                     title="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -432,7 +509,7 @@ export default function AttendanceCalendarView() {
               {/* Days of Week Header */}
               <div className="grid grid-cols-7 text-center mb-1">
                 {DAYS_SHORT.map((d) => (
-                  <span key={d} className="text-[11px] font-semibold text-slate-400 uppercase py-1">
+                  <span key={d} className="text-[11px] font-medium text-mute py-1">
                     {d}
                   </span>
                 ))}
@@ -448,19 +525,17 @@ export default function AttendanceCalendarView() {
                   const dayNum = i + 1;
                   const { dateStr, hasHoliday, hasLeave, holidays: dayHols, sandwich } = getDayMeta(dayNum);
                   const isSelected = selectedDate === dateStr;
+                  const isToday = todayStr === dateStr;
                   const isSandwich = Boolean(sandwich?.isSandwich);
                   const isSandwichWorkday = sandwich?.role === "sandwich_workday";
-                  const isSandwichWeekendOrHol = isSandwich && !isSandwichWorkday;
 
-                  let cellClass = "text-slate-700 hover:bg-slate-100";
+                  let cellClass = "text-ink hover:bg-canvas";
                   if (isSelected) {
-                    cellClass = isSandwichWorkday
-                      ? "bg-amber-600 text-white font-bold ring-2 ring-amber-400 shadow-xs"
-                      : "bg-pine text-white font-bold shadow-xs";
+                    cellClass = "bg-pine text-white font-bold shadow-xs";
                   } else if (isSandwichWorkday) {
-                    cellClass = "bg-amber-100/90 text-amber-950 font-bold border-2 border-dashed border-amber-400 hover:bg-amber-200 shadow-2xs";
-                  } else if (isSandwichWeekendOrHol) {
-                    cellClass = "bg-amber-50/70 text-amber-900 border border-amber-200/80 hover:bg-amber-100/70";
+                    cellClass = "bg-amber-50 text-amber-950 font-bold border border-dashed border-amber-300 hover:bg-amber-100/70";
+                  } else if (isToday) {
+                    cellClass = "ring-1 ring-pine/40 font-bold text-pine bg-pine-soft/40 hover:bg-pine-soft";
                   }
 
                   return (
@@ -480,9 +555,7 @@ export default function AttendanceCalendarView() {
                       <span className="flex items-center gap-0.5 leading-none">
                         {dayNum}
                         {isSandwichWorkday && !isSelected && (
-                          <span title="Sandwich Day: Policy says no leave">
-                            <Layers className="h-2.5 w-2.5 text-amber-700 shrink-0" />
-                          </span>
+                          <Layers className="h-2.5 w-2.5 text-amber-700 shrink-0" />
                         )}
                       </span>
                       <div className="flex items-center gap-0.5 mt-0.5">
@@ -491,14 +564,6 @@ export default function AttendanceCalendarView() {
                             className={cn(
                               "h-1.5 w-1.5 rounded-full",
                               isSelected ? "bg-white" : "bg-purple-600"
-                            )}
-                          />
-                        )}
-                        {isSandwichWorkday && (
-                          <span
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full",
-                              isSelected ? "bg-white" : "bg-amber-600 animate-pulse"
                             )}
                           />
                         )}
@@ -516,8 +581,8 @@ export default function AttendanceCalendarView() {
                 })}
               </div>
 
-              {/* Legend */}
-              <div className="flex flex-wrap items-center justify-center gap-3 mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
+              {/* Minimal Legend */}
+              <div className="flex flex-wrap items-center justify-center gap-3 mt-4 pt-3 border-t border-line text-[11px] text-mute">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 rounded-full bg-pine" /> Selected
                 </span>
@@ -525,59 +590,66 @@ export default function AttendanceCalendarView() {
                   <span className="h-2 w-2 rounded-full bg-purple-600" /> Holiday
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-blue-500" /> Approved Leave
+                  <span className="h-2 w-2 rounded-full bg-blue-500" /> Leave
                 </span>
-                <span className="flex items-center gap-1 font-semibold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shadow-2xs">
-                  <Layers className="h-3 w-3 text-amber-700" /> Sandwich Block
+                <span className="flex items-center gap-1 text-amber-900 font-medium">
+                  <Layers className="h-2.5 w-2.5 text-amber-700" /> Sandwich
                 </span>
               </div>
             </Card>
 
-            {/* Month Holidays Card */}
-            <Card className="p-4">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-2">
-                Holidays in {MONTHS[ym.m]}
-              </span>
-              {(() => {
-                const currentMonthHolidays = holidays.filter((h) =>
-                  h.date.startsWith(`${ym.y}-${pad(ym.m + 1)}`)
-                );
-                if (currentMonthHolidays.length === 0) {
-                  return <p className="text-xs text-mute py-1">No company holidays scheduled this month.</p>;
-                }
-                return (
-                  <ul className="divide-y divide-slate-100">
+            {/* Month Holidays - Compact & Clean */}
+            {(() => {
+              const currentMonthHolidays = holidays.filter((h) =>
+                h.date.startsWith(`${ym.y}-${pad(ym.m + 1)}`)
+              );
+              if (currentMonthHolidays.length === 0) return null;
+              return (
+                <Card className="p-3.5 sm:p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-ink">
+                      Holidays in {MONTHS[ym.m]}
+                    </span>
+                    <span className="text-[11px] text-mute font-medium">
+                      {currentMonthHolidays.length} scheduled
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-line text-xs">
                     {currentMonthHolidays.map((h) => (
-                      <li key={h.id} className="py-2 flex items-center justify-between text-xs">
+                      <li key={h.id} className="py-2 flex items-center justify-between">
                         <div>
-                          <b className="font-semibold text-slate-800">{h.name}</b>
-                          <span className="block text-[11px] text-mute">{h.kind} Holiday</span>
+                          <p className="font-medium text-ink">{h.name}</p>
+                          <span className="text-[11px] text-mute">{h.kind} Holiday</span>
                         </div>
-                        <Badge tone="indigo">{h.date}</Badge>
+                        <span className="font-mono text-[11px] bg-canvas px-2 py-0.5 rounded text-mute border border-line">
+                          {h.date}
+                        </span>
                       </li>
                     ))}
                   </ul>
-                );
-              })()}
-            </Card>
+                </Card>
+              );
+            })()}
           </div>
 
           {/* Right Column: Attendance Roster for Selected Day */}
           <div className="lg:col-span-7">
             <Card>
-              {/* Header with Date & Filter Strip */}
-              <div className="p-4 sm:p-5 border-b border-slate-100 space-y-3">
+              {/* Header with Date, Search & Quick Filter Chips */}
+              <div className="p-4 sm:p-5 border-b border-line space-y-3.5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold text-slate-900 text-sm">
+                    <h3 className="font-semibold text-ink text-sm">
                       {formatSelectedDay(selectedDate)}
                     </h3>
-                    <span className="text-xs text-mute">Daily attendance presenty</span>
+                    <p className="text-xs text-mute mt-0.5">
+                      {roster.length} {roster.length === 1 ? "member" : "members"} on company roster
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <div className="relative w-44 sm:w-56">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-mute" />
                       <input
                         className={`${inputCls} !py-1 !pl-8 text-xs`}
                         placeholder="Search employee..."
@@ -585,147 +657,210 @@ export default function AttendanceCalendarView() {
                         onChange={(e) => setSearchQuery(e.target.value)}
                       />
                     </div>
-                    <select
-                      className={`${inputCls} !w-auto !py-1 text-xs cursor-pointer`}
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                    >
-                      <option value="All">All statuses</option>
-                      <option value="Present">Present</option>
-                      <option value="Late">Late</option>
-                      <option value="On leave">On leave</option>
-                      <option value="WFH">WFH</option>
-                      <option value="Absent">Absent</option>
-                    </select>
                   </div>
                 </div>
 
-                {/* Status Badge Counters */}
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <Badge tone="green" dot>
-                    Present {countBy("Present")}
-                  </Badge>
-                  <Badge tone="amber" dot>
-                    Late {countBy("Late")}
-                  </Badge>
-                  <Badge tone="indigo" dot>
-                    On leave {countBy("On leave")}
-                  </Badge>
-                  <Badge tone="teal" dot>
-                    WFH {wfhCount}
-                  </Badge>
-                  <Badge tone="slate" dot>
-                    Absent {countBy("Absent")}
-                  </Badge>
+                {/* Interactive Status Filter Chips */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  {[
+                    { label: "All", count: roster.length },
+                    { label: "Present", count: countBy("Present") },
+                    { label: "Late", count: countBy("Late") },
+                    { label: "On leave", count: countBy("On leave") },
+                    { label: "WFH", count: wfhCount },
+                    { label: "Absent", count: countBy("Absent") },
+                  ].map((chip) => {
+                    const isActive = statusFilter === chip.label;
+                    return (
+                      <button
+                        key={chip.label}
+                        type="button"
+                        onClick={() => setStatusFilter(chip.label)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer flex items-center gap-1.5",
+                          isActive
+                            ? "bg-pine text-white shadow-2xs font-semibold"
+                            : "bg-canvas text-mute hover:text-ink hover:bg-line/70"
+                        )}
+                      >
+                        <span>{chip.label}</span>
+                        <span
+                          className={cn(
+                            "text-[10px] px-1.5 py-0.2 rounded-full",
+                            isActive
+                              ? "bg-white/20 text-white"
+                              : "bg-white text-ink/70 border border-line"
+                          )}
+                        >
+                          {chip.count}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Attendance Table */}
               {loadingRoster ? (
-                <div className="flex items-center justify-center p-16 text-slate-400">
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading attendance...
+                <div className="flex items-center justify-center p-14 text-mute text-xs">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2 text-pine" /> Loading attendance roster...
                 </div>
               ) : filteredRoster.length === 0 ? (
-                <Empty
-                  icon={Clock}
-                  title="No attendance records"
-                  desc={`No records found for ${selectedDate} matching your filters.`}
-                />
+                <div className="p-12 text-center text-mute text-xs">
+                  <Clock className="h-8 w-8 mx-auto text-line mb-2" />
+                  <p className="font-medium text-ink">No attendance records found</p>
+                  <p className="text-[11px] text-mute mt-1">
+                    No records match your search or filter for {selectedDate}.
+                  </p>
+                </div>
               ) : (
-                <Table>
-                  <thead>
-                    <tr>
-                      <Th>Employee</Th>
-                      <Th>In</Th>
-                      <Th>Out</Th>
-                      <Th>Hours</Th>
-                      <Th>Mode</Th>
-                      <Th>Status</Th>
-                      <Th className="text-right">Action</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRoster.map((r) => (
-                      <tr key={r.userId}>
-                        <Td>
-                          <div className="flex items-center gap-2.5">
-                            <Avatar name={r.name} />
-                            <div>
-                              <p className="font-medium text-slate-900 text-xs">{r.name}</p>
-                              <p className="text-[11px] text-slate-500">
-                                {r.code} · {r.dept}
-                              </p>
-                            </div>
-                          </div>
-                        </Td>
-                        <Td className="font-mono text-xs">{r.in}</Td>
-                        <Td className="font-mono text-xs">{r.out}</Td>
-                        <Td className="font-mono text-xs font-semibold text-slate-700">
-                          {r.hoursFormatted && r.hoursFormatted !== "-" ? r.hoursFormatted : "—"}
-                        </Td>
-                        <Td>
-                          {r.mode === "-" ? (
-                            <span className="text-slate-400 text-xs">—</span>
-                          ) : (
-                            <Badge tone={r.mode === "WFH" ? "teal" : "blue"}>{r.mode}</Badge>
-                          )}
-                        </Td>
-                        <Td>
-                          <div className="flex flex-col gap-0.5">
-                            <StatusBadge s={r.status} />
-                            {r.status === "On leave" && r.leaveReason && (
-                              <span className="text-[10px] text-slate-500 truncate max-w-[120px]" title={r.leaveReason}>
-                                {r.leaveReason}
-                              </span>
-                            )}
-                          </div>
-                        </Td>
-                        <Td className="text-right">
-                          <Btn
-                            size="sm"
-                            variant="ghost"
-                            icon={Pencil}
-                            onClick={() => {
-                              setCorrecting(r);
-                              setCorrectForm({
-                                checkIn: r.in === "-" ? "09:30" : r.in,
-                                checkOut: r.out === "-" ? "18:30" : r.out,
-                                reason: "",
-                              });
-                            }}
-                          >
-                            Correct
-                          </Btn>
-                        </Td>
+                <>
+                  <Table>
+                    <thead>
+                      <tr>
+                        <Th>Employee</Th>
+                        <Th>Check In</Th>
+                        <Th>Check Out</Th>
+                        <Th>Hours</Th>
+                        <Th>Mode</Th>
+                        <Th>Status</Th>
+                        <Th className="text-right">Action</Th>
                       </tr>
-                    ))}
-                  </tbody>
-                </Table>
+                    </thead>
+                    <tbody>
+                      {paginatedRoster.map((r) => (
+                        <tr key={r.userId}>
+                          <Td>
+                            <div className="flex items-center gap-2.5">
+                              <Avatar name={r.name} />
+                              <div>
+                                <p className="font-medium text-ink text-xs">{r.name}</p>
+                                <p className="text-[11px] text-mute">
+                                  {r.code} · {r.dept}
+                                </p>
+                              </div>
+                            </div>
+                          </Td>
+                          <Td className="font-mono text-xs text-ink">{r.in}</Td>
+                          <Td className="font-mono text-xs text-ink">{r.out}</Td>
+                          <Td className="font-mono text-xs font-semibold text-ink">
+                            {r.hoursFormatted && r.hoursFormatted !== "-" ? r.hoursFormatted : "—"}
+                          </Td>
+                          <Td>
+                            {r.mode === "-" ? (
+                              <span className="text-mute text-xs">—</span>
+                            ) : (
+                              <Badge tone={r.mode === "WFH" ? "teal" : "blue"}>{r.mode}</Badge>
+                            )}
+                          </Td>
+                          <Td>
+                            <div className="flex flex-col gap-0.5">
+                              <StatusBadge s={r.status} />
+                              {r.status === "On leave" && r.leaveReason && (
+                                <span className="text-[10px] text-mute truncate max-w-[120px]" title={r.leaveReason}>
+                                  {r.leaveReason}
+                                </span>
+                              )}
+                            </div>
+                          </Td>
+                          <Td className="text-right">
+                            <Btn
+                              size="sm"
+                              variant="ghost"
+                              icon={Pencil}
+                              onClick={() => {
+                                setCorrecting(r);
+                                setCorrectErrors({});
+                                setCorrectForm({
+                                  checkIn: r.in === "-" ? "09:30" : r.in,
+                                  checkOut: r.out === "-" ? "18:30" : r.out,
+                                  reason: "",
+                                });
+                              }}
+                            >
+                              Adjust
+                            </Btn>
+                          </Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+
+                  {/* Clean Pagination Bar */}
+                  {totalItems > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-line text-xs text-mute bg-canvas/30">
+                      <div className="flex items-center gap-3">
+                        <span>
+                          Showing <span className="font-semibold text-ink">{startIndex + 1}</span>–
+                          <span className="font-semibold text-ink">
+                            {Math.min(startIndex + pageSize, totalItems)}
+                          </span>{" "}
+                          of <span className="font-semibold text-ink">{totalItems}</span>
+                        </span>
+                        <div className="flex items-center gap-1.5 pl-2 border-l border-line">
+                          <span>Rows:</span>
+                          <select
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                            className="rounded border border-line bg-white px-2 py-0.5 text-xs text-ink cursor-pointer focus:outline-pine"
+                          >
+                            <option value={5}>5</option>
+                            <option value={7}>7</option>
+                            <option value={10}>10</option>
+                            <option value={15}>15</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={currentPage === 1}
+                          className="px-2.5 py-1 rounded border border-line bg-white text-ink text-xs font-medium hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                        >
+                          Previous
+                        </button>
+                        <span className="px-2 font-medium text-ink">
+                          {currentPage} / {totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={currentPage === totalPages}
+                          className="px-2.5 py-1 rounded border border-line bg-white text-ink text-xs font-medium hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
           </div>
         </div>
       )}
 
-      {/* VIEW MODE 2: Full Month Calendar Grid (All Data Visible in Full Width) */}
+      {/* VIEW MODE 2: Full Month Calendar Grid */}
       {viewMode === "full" && (
-        <Card className="p-4 sm:p-6 space-y-4">
+        <Card className="p-4 sm:p-5 space-y-4">
           {/* Calendar Month Header & Controls */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3.5">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">
+              <h2 className="text-base font-semibold text-ink">
                 {MONTHS[ym.m]} {ym.y}
               </h2>
-              <p className="text-xs text-mute">
-                Overview of company holidays, employee leaves, approved WFH, and attendance statistics. Click any day to inspect its daily roster.
+              <p className="text-xs text-mute mt-0.5">
+                Overview of holidays, leaves, and attendance stats. Click any day to inspect its daily roster.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={handlePrevMonth}
-                className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="p-1.5 rounded-md border border-line text-mute hover:text-ink hover:bg-canvas transition cursor-pointer"
                 title="Previous month"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -733,14 +868,14 @@ export default function AttendanceCalendarView() {
               <button
                 type="button"
                 onClick={handleJumpToday}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-2.5 py-1 text-xs font-medium rounded-md border border-line text-mute hover:text-ink hover:bg-canvas transition cursor-pointer"
               >
                 Today
               </button>
               <button
                 type="button"
                 onClick={handleNextMonth}
-                className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer"
+                className="p-1.5 rounded-md border border-line text-mute hover:text-ink hover:bg-canvas transition cursor-pointer"
                 title="Next month"
               >
                 <ChevronRight className="h-4 w-4" />
@@ -749,19 +884,19 @@ export default function AttendanceCalendarView() {
           </div>
 
           {/* Full Grid Day Headers */}
-          <div className="grid grid-cols-7 border-b border-slate-200 text-center font-semibold text-xs text-slate-500 py-2">
+          <div className="grid grid-cols-7 border-b border-line text-center font-medium text-xs text-mute py-2">
             {DAYS_SHORT.map((d) => (
-              <span key={d} className="uppercase tracking-wider">
+              <span key={d} className="uppercase tracking-wider text-[11px]">
                 {d}
               </span>
             ))}
           </div>
 
           {/* Full Month Grid Cells */}
-          <div className="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+          <div className="grid grid-cols-7 gap-px bg-line border border-line rounded-lg overflow-hidden">
             {/* Empty leading cells */}
             {Array.from({ length: firstDayOfWeek }).map((_, i) => (
-              <div key={`full-empty-${i}`} className="min-h-28 bg-slate-50/60 p-2" />
+              <div key={`full-empty-${i}`} className="min-h-24 bg-canvas/40 p-2" />
             ))}
 
             {/* Days of the month */}
@@ -780,14 +915,12 @@ export default function AttendanceCalendarView() {
                     setViewMode("split");
                   }}
                   className={cn(
-                    "min-h-28 p-2 flex flex-col justify-between transition cursor-pointer group",
+                    "min-h-24 p-2 flex flex-col justify-between transition cursor-pointer group bg-white",
                     isSelected
                       ? "ring-2 ring-inset ring-pine bg-pine-soft/20"
                       : isSandwichWorkday
-                      ? "bg-amber-100/60 border border-dashed border-amber-300 hover:bg-amber-100/90"
-                      : isSandwich
-                      ? "bg-amber-50/50 hover:bg-amber-100/40"
-                      : "bg-white hover:bg-slate-50"
+                      ? "bg-amber-50/70 border border-dashed border-amber-300 hover:bg-amber-100/60"
+                      : "hover:bg-canvas"
                   )}
                 >
                   {/* Day number header */}
@@ -795,51 +928,41 @@ export default function AttendanceCalendarView() {
                     <div className="flex items-center gap-1.5">
                       <span
                         className={cn(
-                          "h-6 w-6 rounded-full flex items-center justify-center text-xs font-semibold",
+                          "h-5 w-5 rounded-full flex items-center justify-center text-xs font-semibold",
                           isSelected
                             ? "bg-pine text-white"
                             : isSandwichWorkday
                             ? "bg-amber-600 text-white font-bold"
-                            : "text-slate-800 group-hover:bg-slate-200"
+                            : "text-ink group-hover:bg-line/60"
                         )}
                       >
                         {dayNum}
                       </span>
                       {isSandwichWorkday && (
-                        <span className="inline-flex items-center gap-1 rounded bg-amber-200 border border-amber-300 px-1.5 py-0.2 text-[9px] font-bold text-amber-950">
-                          <Layers className="h-2.5 w-2.5 text-amber-800" /> Sandwich Day
+                        <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 border border-amber-300 px-1 py-0.2 text-[9px] font-bold text-amber-950">
+                          <Layers className="h-2 w-2 text-amber-800" /> Sandwich
                         </span>
                       )}
                     </div>
 
                     {/* Compact Attendance count pill */}
                     {stat && stat.present > 0 && (
-                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                        ✓ {stat.present} present
+                      <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded">
+                        ✓ {stat.present}
                       </span>
                     )}
                   </div>
 
                   {/* Day event tags list */}
                   <div className="space-y-1 mt-1.5 flex-1">
-                    {/* Sandwich Day Notice Tag */}
-                    {isSandwichWorkday && (
-                      <div
-                        className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200/80 border border-amber-300 text-amber-950 truncate"
-                        title="Sandwich Day: Policy advises rejecting leaves"
-                      >
-                        ⛔ Policy: No Leave
-                      </div>
-                    )}
-
                     {/* Holidays */}
                     {dayHols.map((h) => (
                       <div
                         key={`h-${h.id}`}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-900 truncate"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-900 border border-purple-200/60 truncate"
                         title={`${h.name} (${h.kind} Holiday)`}
                       >
-                        🎉 {h.name} {isSandwich && <span className="inline-flex items-center text-amber-800 font-bold ml-1" title="Part of sandwich period"><Layers className="h-2.5 w-2.5" /></span>}
+                        🎉 {h.name}
                       </div>
                     ))}
 
@@ -847,10 +970,10 @@ export default function AttendanceCalendarView() {
                     {dayLvs.map((l) => (
                       <div
                         key={`l-${l.id}`}
-                        className="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-900 truncate"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-900 border border-blue-200/60 truncate"
                         title={`${l.name}: ${l.type} leave`}
                       >
-                        🏖️ {l.name} ({l.type})
+                        🏖️ {l.name}
                       </div>
                     ))}
 
@@ -858,17 +981,17 @@ export default function AttendanceCalendarView() {
                     {dayWfhs.map((w) => (
                       <div
                         key={`w-${w.id}`}
-                        className="px-1.5 py-0.5 rounded text-[10px] bg-teal-100 text-teal-900 truncate"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-50 text-teal-900 border border-teal-200/60 truncate"
                         title={`${w.name}: Work From Home`}
                       >
-                        🏠 {w.name} (WFH)
+                        🏠 {w.name}
                       </div>
                     ))}
                   </div>
 
                   {/* Hint */}
-                  <span className="text-[9px] text-slate-400 group-hover:text-pine mt-1 block text-right">
-                    Click to view roster →
+                  <span className="text-[9px] text-mute group-hover:text-pine mt-1 block text-right font-medium">
+                    View roster →
                   </span>
                 </div>
               );
@@ -877,15 +1000,24 @@ export default function AttendanceCalendarView() {
         </Card>
       )}
 
-      {/* Correct attendance modal */}
+      {/* Correct attendance modal with strict validation */}
       <Modal
         open={!!correcting}
-        onClose={() => setCorrecting(null)}
-        title="Correct attendance timestamp"
-        desc={correcting ? `${correcting.name} · ${selectedDate}` : undefined}
+        onClose={() => {
+          setCorrecting(null);
+          setCorrectErrors({});
+        }}
+        title="Adjust punch record"
+        desc={correcting ? `${correcting.name} (${correcting.code}) · ${selectedDate}` : undefined}
         footer={
           <>
-            <Btn variant="outline" onClick={() => setCorrecting(null)}>
+            <Btn
+              variant="outline"
+              onClick={() => {
+                setCorrecting(null);
+                setCorrectErrors({});
+              }}
+            >
               Cancel
             </Btn>
             <Btn
@@ -899,31 +1031,92 @@ export default function AttendanceCalendarView() {
         }
       >
         <div className="space-y-4">
+          {Object.keys(correctErrors).length > 0 && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold block">Please fix the following:</span>
+                <ul className="list-disc list-inside mt-0.5 space-y-0.5">
+                  {Object.values(correctErrors).map((msg, idx) => (
+                    <li key={idx}>{msg}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Check-in time">
+            <Field label="Check-in time *">
               <input
                 type="time"
-                className={inputCls}
+                required
+                className={cn(
+                  inputCls,
+                  correctErrors.checkIn && "border-red-400 focus:ring-red-400"
+                )}
                 value={correctForm.checkIn}
-                onChange={(e) => setCorrectForm({ ...correctForm, checkIn: e.target.value })}
+                onChange={(e) => {
+                  setCorrectForm({ ...correctForm, checkIn: e.target.value });
+                  if (correctErrors.checkIn) {
+                    setCorrectErrors((prev) => ({ ...prev, checkIn: undefined }));
+                  }
+                }}
               />
+              {correctErrors.checkIn && (
+                <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                  <AlertCircle className="h-3 w-3 shrink-0" /> {correctErrors.checkIn}
+                </p>
+              )}
             </Field>
-            <Field label="Check-out time">
+
+            <Field label="Check-out time *">
               <input
                 type="time"
-                className={inputCls}
+                required
+                className={cn(
+                  inputCls,
+                  correctErrors.checkOut && "border-red-400 focus:ring-red-400"
+                )}
                 value={correctForm.checkOut}
-                onChange={(e) => setCorrectForm({ ...correctForm, checkOut: e.target.value })}
+                onChange={(e) => {
+                  setCorrectForm({ ...correctForm, checkOut: e.target.value });
+                  if (correctErrors.checkOut) {
+                    setCorrectErrors((prev) => ({ ...prev, checkOut: undefined }));
+                  }
+                }}
               />
+              {correctErrors.checkOut && (
+                <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                  <AlertCircle className="h-3 w-3 shrink-0" /> {correctErrors.checkOut}
+                </p>
+              )}
             </Field>
           </div>
-          <Field label="Reason" hint="Logged in the company audit trail.">
+
+          <Field
+            label="Adjustment Reason *"
+            hint="Mandatory. Logged in company audit trail and payroll."
+          >
             <input
-              className={inputCls}
-              placeholder="e.g. Card scanner glitch, forgot to punch out"
+              required
+              className={cn(
+                inputCls,
+                correctErrors.reason && "border-red-400 focus:ring-red-400"
+              )}
+              placeholder="e.g. Card scanner glitch, forgot punch out"
               value={correctForm.reason}
-              onChange={(e) => setCorrectForm({ ...correctForm, reason: e.target.value })}
+              onChange={(e) => {
+                setCorrectForm({ ...correctForm, reason: e.target.value });
+                if (correctErrors.reason) {
+                  setCorrectErrors((prev) => ({ ...prev, reason: undefined }));
+                }
+              }}
             />
+            {correctErrors.reason && (
+              <p className="text-[11px] text-red-600 mt-1 flex items-center gap-1 font-medium">
+                <AlertCircle className="h-3 w-3 shrink-0" /> {correctErrors.reason}
+              </p>
+            )}
           </Field>
         </div>
       </Modal>

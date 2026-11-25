@@ -58,10 +58,14 @@ export default function Login() {
   return (
     <div className="grid min-h-screen md:grid-cols-[1.1fr_1fr]">
       {/* Brand Side Panel */}
-      <section className="hidden flex-col justify-between bg-pine p-12 text-white md:flex">
-        <div className="flex items-center gap-2.5 font-semibold">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-white text-sm font-bold text-pine">H</span>
-          <span>HR Platform</span>
+      <section className="hidden flex-col justify-between bg-gradient-to-br from-[#ff4b2b] via-[#e11d48] to-[#9f1239] p-12 text-white md:flex">
+        <div className="flex items-center gap-3">
+          <img
+            src="/logo.png"
+            alt="CoinHR Logo"
+            className="h-10 w-10 rounded-xl bg-white p-1 shadow-sm object-contain"
+          />
+          <span className="text-xl font-bold tracking-tight text-white">CoinHR</span>
         </div>
         <div>
           <h1 className="max-w-md text-4xl font-semibold leading-tight tracking-tight">
@@ -81,6 +85,10 @@ export default function Login() {
       {/* Form Section */}
       <section className="grid place-items-center bg-white p-6 sm:p-10">
         <div className="w-full max-w-sm">
+          <div className="mb-6 flex items-center gap-2.5 md:hidden">
+            <img src="/logo.png" alt="CoinHR" className="h-8 w-8 rounded-lg object-contain" />
+            <span className="text-lg font-bold tracking-tight text-ink">CoinHR</span>
+          </div>
           <h2 className="text-2xl font-semibold tracking-tight">Sign in</h2>
           <p className="mt-1 text-sm text-mute">
             Enter your credentials to access your workspace.

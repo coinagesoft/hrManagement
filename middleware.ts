@@ -51,9 +51,21 @@ export async function middleware(request: NextRequest) {
       );
     }
 
-    if (pathname.startsWith('/api/admin') && !['admin', 'super'].includes(user.role)) {
+    const strictlyAdminOnly =
+      pathname.startsWith('/api/admin/settings') ||
+      pathname.startsWith('/api/admin/permissions') ||
+      pathname.startsWith('/api/admin/audit');
+
+    if (strictlyAdminOnly && !['admin', 'super'].includes(user.role)) {
       return NextResponse.json(
         { error: 'Forbidden: Administrator privileges required.', code: 'FORBIDDEN' },
+        { status: 403 }
+      );
+    }
+
+    if (pathname.startsWith('/api/admin') && !['admin', 'hr', 'super'].includes(user.role)) {
+      return NextResponse.json(
+        { error: 'Forbidden: Management privileges required.', code: 'FORBIDDEN' },
         { status: 403 }
       );
     }

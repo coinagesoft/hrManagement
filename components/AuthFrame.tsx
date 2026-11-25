@@ -11,10 +11,10 @@ const POINTS: { icon: LucideIcon; t: string; d: string }[] = [
 export default function AuthFrame({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-600 p-12 text-white lg:flex">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15 text-base font-bold">P</span>
-          <span className="text-lg font-semibold">{BRAND}</span>
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-[#ff4b2b] via-[#e11d48] to-[#9f1239] p-12 text-white lg:flex">
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="CoinHR" className="h-10 w-10 rounded-xl bg-white p-1 object-contain shadow-sm" />
+          <span className="text-xl font-bold tracking-tight text-white">{BRAND}</span>
         </div>
         <div>
           <h2 className="max-w-md text-4xl font-semibold leading-tight">Run attendance, leave and salary from one calm dashboard.</h2>

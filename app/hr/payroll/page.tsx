@@ -602,24 +602,13 @@ export default function PayrollPage() {
             </select>
 
             {stage !== "Paid" ? (
-              <div className="flex items-center gap-1.5">
-                <Btn
-                  variant="outline"
-                  size="sm"
-                  icon={Play}
-                  disabled={actionLoading}
-                  onClick={() => handleAction("run_payroll")}
-                >
-                  {actionLoading ? "Processing..." : "Run Payroll"}
-                </Btn>
-                <button
-                  disabled={actionLoading}
-                  onClick={() => handleAction("mark_paid")}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition disabled:opacity-50"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
-                </button>
-              </div>
+              <button
+                disabled={actionLoading}
+                onClick={() => handleAction("mark_paid")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-700 transition disabled:opacity-50 cursor-pointer"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Mark Paid
+              </button>
             ) : (
               <Btn
                 variant="outline"

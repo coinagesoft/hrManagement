@@ -5,8 +5,15 @@ import { processLeaveAutoApprovals } from '@/lib/leave-auto-approval';
 import { sendRequestRejectedEmail } from '@/lib/email';
 import { calculateSandwichBlocks, checkLeaveSandwichConflict } from '@/lib/sandwich';
 
-async function resolveCompanyId(): Promise<number> {
-  const session = await getSessionUser();
+async function resolveCompanyId(request?: Request): Promise<number> {
+  if (request) {
+    const headerCompanyId = request.headers.get('x-company-id');
+    if (headerCompanyId) {
+      const parsed = parseInt(headerCompanyId, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  const session = await getSessionUser(request);
   if (session?.companyId) return session.companyId;
   const comps = await query<any[]>('SELECT id FROM companies ORDER BY id ASC LIMIT 1');
   return comps[0]?.id || 1;
@@ -15,7 +22,7 @@ async function resolveCompanyId(): Promise<number> {
 export async function GET(request: Request) {
   await connection();
   try {
-    const companyId = await resolveCompanyId();
+    const companyId = await resolveCompanyId(request);
 
     // Process any pending leaves meeting the 48-hour auto-approval criteria
     await processLeaveAutoApprovals(companyId);
@@ -142,7 +149,7 @@ export async function POST(request: Request) {
           sendRequestRejectedEmail({
             toEmail: leave.email,
             employeeName: leave.name,
-            companyName: leave.company_name || 'PeopleDesk HR',
+            companyName: leave.company_name || 'CoinHR',
             requestType: `${leave.leave_type} Leave`,
             period: fromStr === toStr ? fromStr : `${fromStr} to ${toStr} (${leave.days_count}d)`,
             employeeReason: leave.reason,
@@ -191,7 +198,7 @@ export async function POST(request: Request) {
           sendRequestRejectedEmail({
             toEmail: wfh.email,
             employeeName: wfh.name,
-            companyName: wfh.company_name || 'PeopleDesk HR',
+            companyName: wfh.company_name || 'CoinHR',
             requestType: 'Work From Home (WFH)',
             period: wfhDateStr,
             employeeReason: wfh.reason,
